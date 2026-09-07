@@ -1,0 +1,54 @@
+{
+  "name": "@avantgate/core",
+  "version": "1.0.0",
+  "description": "Zero-infrastructure, in-process LLM control plane: real-time cost control, token budgets, PII redaction, prompt guardrails, and multi-model failover without hosting servers.",
+  "author": "Antigravity & LexTalk Team",
+  "license": "MIT",
+  "keywords": [
+    "avantgate",
+    "llm",
+    "ai",
+    "cost-control",
+    "token-budget",
+    "guardrails",
+    "langfuse-alternative",
+    "failover",
+    "pii-redaction",
+    "deepseek",
+    "mistral",
+    "openai",
+    "zod"
+  ],
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts --clean",
+    "test": "tsx tests/avantgate.test.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.23.0 || ^4.0.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.0",
+    "typescript": "^5.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
