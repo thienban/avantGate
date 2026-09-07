@@ -17,7 +17,7 @@ function assert(condition: boolean, msg: string) {
 }
 
 async function runTests() {
-  console.log("🛡️ Testing @avantgate/core Open Source Library...\n");
+  console.log("🛡️ Testing avantgate Open Source Library...\n");
 
   // Test 1: PII Sanitizer
   const sanitized = sanitizePII("Contacter client@lextalk.fr ou au 06 12 34 56 78.");
@@ -141,7 +141,7 @@ async function runTests() {
   assert(loggedAuditRecord !== null, "AuditSink intercepted execution telemetry");
   assert(loggedAuditRecord.attempts === 3, "AuditSink recorded correct attempts");
 
-  console.log("\n🎉 All @avantgate/core tests passed successfully!");
+  console.log("\n🎉 All avantgate tests passed successfully!");
 }
 
 runTests().catch((err) => {

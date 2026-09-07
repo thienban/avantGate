@@ -1,5 +1,5 @@
 {
-  "name": "@avantgate/core",
+  "name": "avantgate",
   "version": "1.0.0",
   "description": "Zero-infrastructure, in-process LLM control plane: real-time cost control, token budgets, PII redaction, prompt guardrails, and multi-model failover without hosting servers.",
   "author": "Antigravity & LexTalk Team",
@@ -38,7 +38,8 @@
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts --clean",
     "test": "tsx tests/avantgate.test.ts",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
     "zod": "^3.23.0 || ^4.0.0"

@@ -1,4 +1,4 @@
-# 🛡️ AvantGate (`@avantgate/core`)
+# 🛡️ AvantGate (`avantgate`)
 
 > **The Zero-Infrastructure, In-Process LLM Control Plane for TypeScript.**  
 > Real-time cost control, token budgets, PII redaction, prompt guardrails, and multi-model failover **without hosting Docker, PostgreSQL, ClickHouse, or Redis.**
@@ -46,7 +46,7 @@ flowchart LR
 
 ## 📊 Comparison: Langfuse vs. AvantGate
 
-| Capability | Langfuse (Self-Hosted) | AvantGate (`@avantgate/core`) |
+| Capability | Langfuse (Self-Hosted) | AvantGate (`avantgate`) |
 |---|:---:|:---:|
 | **Infrastructure Required** | Docker + Postgres + ClickHouse + Redis | **Zero Infrastructure** (Pure npm package) |
 | **Hosting Cost** | $30 - $100 / month | **$0 / month** (Runs inside your app) |
@@ -61,11 +61,11 @@ flowchart LR
 ## 📦 Installation
 
 ```bash
-npm install @avantgate/core zod
+npm install avantgate zod
 # or
-pnpm add @avantgate/core zod
+pnpm add avantgate zod
 # or
-yarn add @avantgate/core zod
+yarn add avantgate zod
 ```
 
 ---
@@ -75,7 +75,7 @@ yarn add @avantgate/core zod
 ### 1. Basic Completion with Real-Time Cost Tracking
 
 ```typescript
-import { createAvantGate } from "@avantgate/core";
+import { createAvantGate } from "avantgate";
 
 const control = createAvantGate({
   primary: {
@@ -104,7 +104,7 @@ console.log(`Exact cost: $${result.costUSD.toFixed(6)}`);
 Never deal with malformed LLM outputs again. AvantGate validates outputs against a Zod schema and repairs broken JSON automatically:
 
 ```typescript
-import { createAvantGate } from "@avantgate/core";
+import { createAvantGate } from "avantgate";
 import { z } from "zod";
 
 const control = createAvantGate({
@@ -141,7 +141,7 @@ console.log(response.data.revenue);        // 12500000
 If your primary provider experiences outages or rate-limits (HTTP 429/500/503), AvantGate automatically switches to your fallback provider:
 
 ```typescript
-import { createAvantGate } from "@avantgate/core";
+import { createAvantGate } from "avantgate";
 
 const resilientEngine = createAvantGate({
   // 1. Primary low-cost model
@@ -184,7 +184,7 @@ console.log(`Failover occurred: ${response.failoverOccurred}`); // true/false
 Protect user privacy and defend against jailbreak attacks:
 
 ```typescript
-import { createAvantGate } from "@avantgate/core";
+import { createAvantGate } from "avantgate";
 
 const secureEngine = createAvantGate({
   primary: { provider: "deepseek", apiKey: process.env.DEEPSEEK_API_KEY! },
@@ -217,7 +217,7 @@ AvantGate is built around clean **Ports and Adapters**:
 
 ## 🗺️ Roadmap & Milestones
 
-### 🎯 Core Control Plane (`@avantgate/core`)
+### 🎯 Core Control Plane (`avantgate`)
 
 1. ⏱️ **In-Process Sliding-Window Rate Limiter & User Quotas**
    - In-memory token bucket per User ID, IP address, or session without Redis.
