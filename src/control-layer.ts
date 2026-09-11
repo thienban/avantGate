@@ -3,6 +3,7 @@ import type {
   ControlLayerConfig,
   ExecutionResult,
   StructuredExecutionResult,
+  GenerateStructuredOutputOptions,
   LLMProviderPort,
   ChatMessage,
   ProviderConfig,
@@ -112,16 +113,18 @@ export class AvantGateControlLayer {
   private async executeProviderPipeline(
     messages: ChatMessage[],
     query: string,
-    temperature?: number
+    temperature?: number,
+    modelOverride?: string
   ): Promise<ProviderDispatchOutput> {
     const chain = this.getProviderChain();
     let lastError: unknown;
 
     for (let index = 0; index < chain.length; index++) {
       const providerConfig = chain[index];
+      const targetModel = (index === 0 && modelOverride) ? modelOverride : providerConfig.model;
       try {
         const response = await providerConfig.client!.complete({
-          model: providerConfig.model,
+          model: targetModel,
           messages,
           temperature: temperature ?? 0.2,
         });
@@ -129,7 +132,7 @@ export class AvantGateControlLayer {
         return {
           responseText: response.text,
           usage,
-          modelUsed: providerConfig.model,
+          modelUsed: targetModel,
           failoverOccurred: index > 0,
           attempts: index + 1,
         };
@@ -220,7 +223,14 @@ export class AvantGateControlLayer {
       providerOverride: options.providerOverride,
     });
 
-    const parsedData = validateWithZod(rawResult.text, options.schema);
+    const isFinancial = Boolean(
+      this.config.features?.finance?.enableFrenchAccounting || this.config.features?.finance
+    );
+
+    const parsedData = validateWithZod(rawResult.text, options.schema, {
+      financialNormalizer: isFinancial,
+      jurisdiction: this.config.features?.finance?.jurisdiction,
+    });
 
     return {
       data: parsedData,
@@ -230,6 +240,119 @@ export class AvantGateControlLayer {
       modelUsed: rawResult.modelUsed,
       failoverOccurred: rawResult.failoverOccurred,
     };
+  }
+
+  /**
+   * Méthode unifiée de premier niveau pour l'extraction structurée sans code boilerplate.
+   * Gère le failover multi-fournisseurs, les retries, la validation Zod et la normalisation financière.
+   */
+  async generateStructuredOutput<T>(
+    options: GenerateStructuredOutputOptions<T>
+  ): Promise<StructuredExecutionResult<T>> {
+    const maxRetries = options.maxRetries ?? this.config.retryOptions?.maxRetries ?? 2;
+    const modelToUse = options.model ?? this.config.primary.model;
+
+    const processedMessages = options.messages.map((msg) => {
+      if (msg.role === "user") {
+        return { ...msg, content: this.applySecurityGuards(msg.content) };
+      }
+      return msg;
+    });
+
+    let lastError: unknown;
+    let accumulatedPromptTokens = 0;
+    let accumulatedCompletionTokens = 0;
+    let failoverOccurred = false;
+    let modelUsed = modelToUse;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        let responseText = "";
+        let attemptPromptTokens = 0;
+        let attemptCompletionTokens = 0;
+
+        if (options.providerOverride) {
+          const res = await options.providerOverride.complete({
+            model: modelToUse,
+            messages: processedMessages,
+            temperature: options.temperature ?? 0.1,
+          });
+          responseText = res.text;
+          const usage = this.resolveTokens(res.usage, JSON.stringify(processedMessages), responseText);
+          attemptPromptTokens = usage.promptTokens;
+          attemptCompletionTokens = usage.completionTokens;
+          modelUsed = modelToUse;
+        } else if (this.getProviderChain().length === 0) {
+          const sim = this.executeSimulation(JSON.stringify(processedMessages));
+          responseText = sim.text;
+          attemptPromptTokens = sim.tokens.prompt;
+          attemptCompletionTokens = sim.tokens.completion;
+        } else {
+          const output = await this.executeProviderPipeline(
+            processedMessages,
+            JSON.stringify(processedMessages),
+            options.temperature ?? 0.1,
+            options.model
+          );
+          responseText = output.responseText;
+          attemptPromptTokens = output.usage.promptTokens;
+          attemptCompletionTokens = output.usage.completionTokens;
+          modelUsed = output.modelUsed;
+          failoverOccurred = output.failoverOccurred;
+        }
+
+        accumulatedPromptTokens += attemptPromptTokens;
+        accumulatedCompletionTokens += attemptCompletionTokens;
+
+        const isFinancial =
+          options.financialNormalizer ??
+          Boolean(
+            this.config.features?.finance?.enableFrenchAccounting || this.config.features?.finance
+          );
+
+        const parsedData = validateWithZod(responseText, options.schema, {
+          financialNormalizer: isFinancial,
+          jurisdiction: this.config.features?.finance?.jurisdiction,
+        });
+
+        const totalTokens = accumulatedPromptTokens + accumulatedCompletionTokens;
+        const costUSD = calculateCostUSD(modelUsed, accumulatedPromptTokens, accumulatedCompletionTokens);
+
+        const result: StructuredExecutionResult<T> = {
+          data: parsedData,
+          rawText: responseText,
+          tokens: {
+            prompt: accumulatedPromptTokens,
+            completion: accumulatedCompletionTokens,
+            total: totalTokens,
+          },
+          costUSD,
+          modelUsed,
+          failoverOccurred,
+        };
+
+        await this.notifyAuditSink({
+          text: responseText,
+          tokens: result.tokens,
+          costUSD: result.costUSD,
+          modelUsed: result.modelUsed,
+          failoverOccurred: result.failoverOccurred,
+          attempts: attempt + 1,
+        });
+
+        return result;
+      } catch (err) {
+        lastError = err;
+        if (attempt < maxRetries) {
+          const delay =
+            (this.config.retryOptions?.initialDelayMs ?? 200) *
+            Math.pow(this.config.retryOptions?.backoffFactor ?? 1.5, attempt);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
+
+    throw lastError;
   }
 }
 

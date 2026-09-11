@@ -141,6 +141,83 @@ async function runTests() {
   assert(loggedAuditRecord !== null, "AuditSink intercepted execution telemetry");
   assert(loggedAuditRecord.attempts === 3, "AuditSink recorded correct attempts");
 
+  // Test 7: generateStructuredOutput with Failover & Cost Tracking
+  const mockStructuredSuccess: LLMProviderPort = {
+    name: "mistral-structured",
+    async complete() {
+      return {
+        text: JSON.stringify({ company: "LexTalk Financial", turnover: 250000 }),
+        usage: { promptTokens: 30, completionTokens: 15, totalTokens: 45 },
+      };
+    },
+  };
+
+  const structuredControl = createAvantGate({
+    primary: {
+      provider: "deepseek",
+      model: "deepseek-chat",
+      client: mockFailingPrimary,
+    },
+    fallback: {
+      provider: "mistral",
+      model: "mistral-large-latest",
+      client: mockStructuredSuccess,
+    },
+  });
+
+  const structuredSchema = z.object({
+    company: z.string(),
+    turnover: z.number(),
+  });
+
+  const structuredRes = await structuredControl.generateStructuredOutput({
+    messages: [{ role: "user", content: "Extraire les métriques financières" }],
+    schema: structuredSchema,
+  });
+
+  assert(structuredRes.data.company === "LexTalk Financial", "generateStructuredOutput parsed typed schema");
+  assert(structuredRes.data.turnover === 250000, "generateStructuredOutput extracted turnover");
+  assert(structuredRes.failoverOccurred === true, "generateStructuredOutput supported multi-provider failover");
+  assert(structuredRes.tokens.total === 45, "generateStructuredOutput tracked token usage");
+
+  // Test 8: Control Layer with features.finance enabled
+  const mockFinancialWithParentheses: LLMProviderPort = {
+    name: "mistral-accounting",
+    async complete() {
+      return {
+        text: `{"company": "LexTalk SAS", "result": (150 000)}`,
+        usage: { promptTokens: 25, completionTokens: 10, totalTokens: 35 },
+      };
+    },
+  };
+
+  const accountingControl = createAvantGate({
+    primary: {
+      provider: "mistral",
+      model: "mistral-large-latest",
+      client: mockFinancialWithParentheses,
+    },
+    features: {
+      finance: {
+        enableFrenchAccounting: true,
+        stripCurrencySymbols: true,
+        jurisdiction: "FR",
+      },
+    },
+  });
+
+  const accountingSchema = z.object({
+    company: z.string(),
+    result: z.number(),
+  });
+
+  const accountingRes = await accountingControl.generateStructuredOutput({
+    messages: [{ role: "user", content: "Analyser le résultat" }],
+    schema: accountingSchema,
+  });
+
+  assert(accountingRes.data.result === -150000, "features.finance automatically normalized (150 000) to -150000");
+
   console.log("\n🎉 All avantgate tests passed successfully!");
 }
 

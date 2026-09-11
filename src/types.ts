@@ -74,6 +74,17 @@ export interface AuditSinkPort {
   log(record: AuditRecord): Promise<void> | void;
 }
 
+export interface FinanceFeaturesConfig {
+  enableFrenchAccounting?: boolean;
+  stripCurrencySymbols?: boolean;
+  jurisdiction?: "FR" | "US" | "UK" | "CH" | "INTERNATIONAL";
+  autoDetect?: boolean;
+}
+
+export interface FeaturesConfig {
+  finance?: FinanceFeaturesConfig;
+}
+
 export interface ControlLayerConfig {
   primary: ProviderConfig;
   fallback?: ProviderConfig;
@@ -85,6 +96,7 @@ export interface ControlLayerConfig {
   security?: SecurityConfig;
   hourlyTokenLimit?: number;
   dailyTokenLimit?: number;
+  features?: FeaturesConfig;
 }
 
 export interface ExecutionResult {
@@ -112,3 +124,15 @@ export interface StructuredExecutionResult<T> {
   modelUsed: string;
   failoverOccurred: boolean;
 }
+
+export interface GenerateStructuredOutputOptions<T> {
+  model?: string;
+  messages: ChatMessage[];
+  schema: z.ZodType<T>;
+  schemaName?: string;
+  maxRetries?: number;
+  temperature?: number;
+  providerOverride?: LLMProviderPort;
+  financialNormalizer?: boolean;
+}
+

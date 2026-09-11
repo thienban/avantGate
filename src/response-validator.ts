@@ -1,4 +1,12 @@
 import { z } from "zod";
+import { cleanFinancialJSON } from "./finance/normalizer";
+import type { FinancialJurisdictionCode } from "./finance/strategy.interface";
+
+export interface ValidateOptions {
+  normalizer?: (rawText: string) => string;
+  financialNormalizer?: boolean;
+  jurisdiction?: FinancialJurisdictionCode;
+}
 
 /**
  * Nettoie et extrait un bloc JSON valide depuis une réponse de LLM
@@ -42,14 +50,26 @@ export function extractAndCleanJSON(rawText: string): string {
 
 /**
  * Valide et auto-répare une sortie JSON contre un schéma Zod.
+ * Supporte l'option de normalisation financière (parenthèses négatives, formats comptables).
  */
-export function validateWithZod<T>(rawText: string, schema: z.ZodType<T>): T {
-  const jsonString = extractAndCleanJSON(rawText);
+export function validateWithZod<T>(
+  rawText: string,
+  schema: z.ZodType<T>,
+  options?: ValidateOptions
+): T {
+  let jsonString = extractAndCleanJSON(rawText);
+
+  if (options?.normalizer) {
+    jsonString = options.normalizer(jsonString);
+  } else if (options?.financialNormalizer) {
+    jsonString = cleanFinancialJSON(jsonString, { jurisdiction: options.jurisdiction });
+  }
+
   let parsed: unknown;
 
   try {
     parsed = JSON.parse(jsonString);
-  } catch (error: any) {
+  } catch (_error: unknown) {
     // Tentative de réparation légère (guillemets simples ou virgules traînantes)
     const sanitized = jsonString
       .replace(/,\s*([}\]])/g, "$1") // trailing comma
