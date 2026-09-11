@@ -206,6 +206,103 @@ try {
 
 ---
 
+### 4. In-Process Prompt Engine (`PromptTemplate`, `PromptBuilder`, `PromptRegistry`)
+
+Assemble prompts systematically with strict token slots, KV-cache prefix hits, automated Zod output contracts, and jailbreak guardrails.
+
+```typescript
+import { PromptBuilder, PromptTemplate, PromptRegistry } from "avantgate";
+import { z } from "zod";
+
+// Register a versioned, anti-injection prompt template
+PromptRegistry.register(
+  new PromptTemplate({
+    id: "legal-audit",
+    version: 1,
+    label: "production",
+    inputSchema: z.object({
+      clientName: z.string(),
+      jurisdiction: z.enum(["FR", "US", "UK"]).default("FR"),
+    }),
+    template: "You are a legal auditor in {{jurisdiction}} assessing {{clientName}}.",
+  })
+);
+
+// Fluent assembly with deterministic slot budgeting and JSON schema contract
+const auditSchema = z.object({
+  riskLevel: z.enum(["LOW", "MEDIUM", "HIGH"]),
+  findings: z.array(z.string()),
+});
+
+const builder = new PromptBuilder()
+  .withPersona("You are a certified auditor.")
+  .withRules(["Do not guess missing facts.", "Cite exact clauses."])
+  .withRetryHint("Ensure findings contains at least one observation.")
+  .withPinnedFacts({ Entity: "LexTalk SAS", FiscalYear: 2024 })
+  .withContext("Contract clause 12: non-compete duration 24 months.")
+  .withUserPayload("Analyze contract compliance.")
+  .schemaContract(auditSchema, { schemaName: "AuditSummary" });
+
+const messages = builder.toMessages();
+```
+
+---
+
+### 5. Modular Financial Normalizer & Accounting Strategies (`avantgate/finance`)
+
+Opt-in, zero-overhead financial accounting module. Automatically normalizes negative parentheses `(150 000)` ➔ `-150000`, magnitudes (`1 850 k€` ➔ `1850000`), European decimal commas, and currency symbols across jurisdictions (**FR PCG / Cerfa**, **US GAAP**, **UK IFRS**, **Swiss CO**).
+
+```typescript
+import { cleanFinancialJSON, AccountingFactory } from "avantgate/finance";
+import { validateWithZod } from "avantgate";
+import { z } from "zod";
+
+const rawLLMText = `
+{
+  "company": "LexTalk SAS (Holding)",
+  "net_result": (150 000),
+  "turnover": "1 850 k€",
+  "cash": "1 850 000,50 €"
+}
+`;
+
+// Auto-detects French/US/UK/Swiss accounting or pass explicit jurisdiction
+const cleaned = cleanFinancialJSON(rawLLMText, { jurisdiction: "FR" });
+// Result: { "company": "LexTalk SAS (Holding)", "net_result": -150000, "turnover": 1850000, "cash": 1850000.5 }
+
+// Direct Zod validation with financial normalizer option:
+const schema = z.object({
+  company: z.string(),
+  net_result: z.number(),
+  turnover: z.number(),
+  cash: z.number(),
+});
+
+const data = validateWithZod(rawLLMText, schema, { financialNormalizer: true, jurisdiction: "FR" });
+```
+
+---
+
+### 6. Unified `generateStructuredOutput` with Multi-Provider Failover
+
+Extract type-safe data with zero boilerplate. Automatically handles failover, retries, cost tracking, and financial repair:
+
+```typescript
+const result = await control.generateStructuredOutput({
+  model: "mistral-large-latest",
+  messages: promptMessages,
+  schema: financialSchema,
+  maxRetries: 2,
+  financialNormalizer: true,
+});
+
+console.log(result.data);       // Fully validated & typed object
+console.log(result.costUSD);    // Total cost across attempts
+console.log(result.modelUsed);  // Final provider model that succeeded
+```
+
+---
+
 ## 🏗️ Architecture & Extensibility
 
 AvantGate is built around clean **Ports and Adapters**:
