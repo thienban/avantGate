@@ -11,7 +11,13 @@
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "baseUrl": ".",
+    "paths": {
+      "avantgate": ["./src/index.ts"],
+      "avantgate/finance": ["./src/finance/index.ts"],
+      "avantgate/agent": ["./src/agent/index.ts"]
+    }
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "tests"]
