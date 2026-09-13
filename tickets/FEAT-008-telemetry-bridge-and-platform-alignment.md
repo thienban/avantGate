@@ -1,4 +1,4 @@
-# [FEAT-008]: Pont de Télémétrie HTTP & Alignement SDK avec la Plateforme d'Observabilité (DESIGN-005)
+# [FEAT-008]: Pont de Télémétrie HTTP & Alignement SDK avec la Plateforme d'Observabilité SaaS
 
 - **Statut**: DONE <!-- Options: TODO | IN_PROGRESS | IN_REVIEW | DONE -->
 - **Priorité**: HIGH <!-- Options: LOW | MEDIUM | HIGH | CRITICAL -->
@@ -6,13 +6,13 @@
 - **Date de création**: 2026-09-13
 - **Assigné à**: Antigravity
 - **Dépôt Cible**: [thienban/avantGate](https://github.com/thienban/avantGate)
-- **Tickets Liés**: [FEAT-006](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-006-avantgate-agent-submodule.md), [FEAT-007](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-007-agent-tool-chaining-and-circular-guard.md), [DESIGN-005](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/DESIGN-005-agent-data-observability-platform.md)
+- **Tickets Liés**: [FEAT-006](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-006-avantgate-agent-submodule.md), [FEAT-007](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-007-agent-tool-chaining-and-circular-guard.md)
 
 ---
 
 ## 🎯 Objectif & Contexte
 
-Suite à l'implémentation réussie de **FEAT-007** (identification $O(1)$, aliasing/anonymisation, tool chaining, protection anti-cycles et persistance locale DB) et à la conception d'architecture de **DESIGN-005** (Plateforme SaaS d'Observabilité Open-Core), un pont technique est nécessaire pour harmoniser parfaitement le SDK `avantgate` avec la future plateforme `avantgate-platform`.
+Suite à l'implémentation réussie de **FEAT-007** (identification $O(1)$, aliasing/anonymisation, tool chaining, protection anti-cycles et persistance locale DB) et à la spécification technique de la future plateforme SaaS d'Observabilité Open-Core, un pont technique est nécessaire pour harmoniser parfaitement le SDK `avantgate` avec la plateforme `avantgate-platform`.
 
 Ce ticket vise à :
 1. **Harmoniser les contrats de données** entre le SDK local (`avantgate/agent`) et le protocole d'ingestion SaaS (`POST /api/v1/ingest/events`).
@@ -26,7 +26,7 @@ Ce ticket vise à :
 
 ### 1. Alignement des Modèles de Télémétrie (`types.ts`)
 - [x] `ToolExecutionRecord` étendu avec :
-  - `runId?: string` (aligné avec `workflowId`, assurant la corrélation immédiate avec les sessions DESIGN-005).
+  - `runId?: string` (aligné avec `workflowId`, assurant la corrélation immédiate avec les sessions).
   - `piiFilteredCount?: number` (nombre de PII interceptées/masquées lors de l'exécution).
   - `tokens?: { promptTokens?: number; completionTokens?: number; totalTokens?: number }` (pour les sous-outils agents/LLM).
   - `costUsd?: number` (estimation du coût FinOps de l'outil).
@@ -53,7 +53,7 @@ Ce ticket vise à :
   - Persistance locale immédiate (délégation vers un adapter primaire ex: `SQLiteStorageAdapter` ou `MemoryStorageAdapter`).
   - Transmission simultanée en miroir vers le `HttpTelemetryExporter`.
 
-### 5. Format de Payload Conforme DESIGN-005 §5.1
+### 5. Format de Payload Conforme au Protocole d'Ingestion SaaS
 - [x] L'exporteur formate les événements selon le schéma attendu par la plateforme :
   - Type `STEP_START` / `STEP_COMPLETED`
   - Type `TOOL_EXECUTION` (avec `toolName`, `durationMs`, `success`, `llmSummary`, `piiFilteredCount`, `tokenCount`, `parentToolId`, `depth`)

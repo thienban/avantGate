@@ -6,7 +6,7 @@
 - **Date de création**: 2026-09-13
 - **Assigné à**: Antigravity
 - **Dépôt Cible**: [thienban/avantGate](https://github.com/thienban/avantGate)
-- **Tickets Liés**: [FEAT-006](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-006-avantgate-agent-submodule.md), [FEAT-008](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-008-telemetry-bridge-and-platform-alignment.md), [DESIGN-005](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/DESIGN-005-agent-data-observability-platform.md)
+- **Tickets Liés**: [FEAT-006](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-006-avantgate-agent-submodule.md), [FEAT-008](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-008-telemetry-bridge-and-platform-alignment.md)
 
 ---
 
