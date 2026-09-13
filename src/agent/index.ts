@@ -11,4 +11,7 @@ export * from "./factory";
 export * from "./registry";
 export * from "./strategy";
 export * from "./step-runner";
+export * from "./tool-invoker";
+export * from "./tool-state";
 export * from "./adapters";
+export * from "./telemetry";

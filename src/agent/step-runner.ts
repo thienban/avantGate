@@ -29,12 +29,14 @@ async function fetchCachedResult<T>(
 async function markStepRunning(
   storage: StepStorageAdapter,
   workflowId: string,
-  stepId: string
+  stepId: string,
+  runId?: string
 ): Promise<void> {
   const now = new Date().toISOString();
   await storage.saveStep({
     workflowId,
     stepId,
+    runId,
     status: "RUNNING",
     createdAt: now,
     updatedAt: now,
@@ -61,6 +63,7 @@ async function executeWithPersistence<T>(
   storage: StepStorageAdapter,
   workflowId: string,
   stepId: string,
+  runId: string | undefined,
   executeFn: () => Promise<T>
 ): Promise<T> {
   const cache = await fetchCachedResult<T>(storage, workflowId, stepId);
@@ -68,7 +71,7 @@ async function executeWithPersistence<T>(
     return cache.result as T;
   }
 
-  await markStepRunning(storage, workflowId, stepId);
+  await markStepRunning(storage, workflowId, stepId, runId);
 
   try {
     const result = await executeFn();
@@ -83,6 +86,7 @@ async function handleWaitForApproval<T>(
   storage: StepStorageAdapter,
   workflowId: string,
   stepId: string,
+  runId?: string,
   options?: StepApprovalOptions<T>
 ): Promise<T> {
   const existing = await storage.getStep<T>(workflowId, stepId);
@@ -94,6 +98,7 @@ async function handleWaitForApproval<T>(
   const stepRecord: StepRecord<T> = {
     workflowId,
     stepId,
+    runId,
     status: "WAITING_APPROVAL",
     metadata: options?.metadata,
     result: options?.defaultResult,
@@ -110,19 +115,19 @@ async function handleWaitForApproval<T>(
  * with automatic idempotence and Human-in-the-Loop approval capability.
  */
 export function createStepRunner(config: StepRunnerConfig): StepRunnerInstance {
-  const { workflowId, storage = new MemoryStorageAdapter() } = config;
+  const { workflowId, runId = config.runId ?? config.workflowId, storage = new MemoryStorageAdapter() } = config;
 
   return {
     workflowId,
     storage,
     async run<T>(stepId: string, executeFn: () => Promise<T>): Promise<T> {
-      return executeWithPersistence<T>(storage, workflowId, stepId, executeFn);
+      return executeWithPersistence<T>(storage, workflowId, stepId, runId, executeFn);
     },
     async waitForApproval<T = unknown>(
       stepId: string,
       options?: StepApprovalOptions<T>
     ): Promise<T> {
-      return handleWaitForApproval<T>(storage, workflowId, stepId, options);
+      return handleWaitForApproval<T>(storage, workflowId, stepId, runId, options);
     },
     async approveStep<T = unknown>(stepId: string, approvalData?: T): Promise<void> {
       await storage.updateStepStatus(workflowId, stepId, "COMPLETED", {

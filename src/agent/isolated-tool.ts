@@ -28,35 +28,47 @@ function produceLlmPayload<TArgs, TResult>(
 
 function protectLlmPayload(
   payload: unknown,
-  toolName: string,
+  toolIdentifier: string,
   sanitizePii = true,
   throwOnPii = false
-): unknown {
+): { sanitized: unknown; count: number } {
   if (!sanitizePii) {
-    return payload;
+    return { sanitized: payload, count: 0 };
   }
-  const { sanitizedData } = auditToolResult(payload, {
-    toolName,
+  const { sanitizedData, maskedCount } = auditToolResult(payload, {
+    toolName: toolIdentifier,
     throwOnPii,
   });
-  return sanitizedData;
+  return { sanitized: sanitizedData, count: maskedCount };
 }
 
 /**
  * Creates an isolated tool compatible with Vercel AI SDK (ai) tool contract.
- * Features dual-channel separation (client data vs minimal LLM summary)
- * and automatic in-flight PII redaction.
+ * Features dual-channel separation (client data vs minimal LLM summary),
+ * stable ID, aliasing, caching and automatic in-flight PII redaction.
  */
 export function createIsolatedTool<TArgs = any, TResult = any>(
   config: IsolatedToolConfig<TArgs, TResult>
 ): VercelAiCoreTool<TArgs, TResult> {
+  const toolId = config.id || config.name;
+  const toolAlias = config.alias;
+
   const tool: VercelAiCoreTool<TArgs, TResult> = {
     description: config.description,
     parameters: config.parameters,
+    _toolId: toolId,
     _toolName: config.name,
+    _toolAlias: toolAlias,
     _isIsolated: true,
+    _cacheTTL: config.cacheTTL,
+    _lastPiiFilteredCount: 0,
     async execute(args: TArgs, context?: ToolExecutionContext): Promise<any> {
-      const rawResult = await config.execute(args, context);
+      const updatedContext: ToolExecutionContext = {
+        ...context,
+        callChain: context?.callChain ?? Object.freeze([toolId]),
+      };
+
+      const rawResult = await config.execute(args, updatedContext);
 
       await dispatchClientData(rawResult, config.toClientData);
 
@@ -66,12 +78,15 @@ export function createIsolatedTool<TArgs = any, TResult = any>(
         config.toLLMSummary
       );
 
-      return protectLlmPayload(
+      const protection = protectLlmPayload(
         llmPayload,
-        config.name,
+        toolAlias || config.name,
         config.sanitizePii !== false,
         config.throwOnPii === true
       );
+
+      tool._lastPiiFilteredCount = protection.count;
+      return protection.sanitized;
     },
   };
 

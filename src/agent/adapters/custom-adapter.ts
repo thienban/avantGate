@@ -2,6 +2,7 @@ import type {
   StepRecord,
   StepStatus,
   StepStorageAdapter,
+  ToolExecutionRecord,
 } from "../types";
 
 export interface CustomStorageHandlers {
@@ -17,6 +18,26 @@ export interface CustomStorageHandlers {
     patch?: Partial<StepRecord<T>>
   ) => Promise<void>;
   listSteps: (workflowId: string) => Promise<StepRecord[]>;
+
+  // Optional tool tracking & cache handlers
+  saveToolExecution?: (record: ToolExecutionRecord) => Promise<void>;
+  listToolExecutions?: (
+    workflowId?: string,
+    stepId?: string
+  ) => Promise<ToolExecutionRecord[]>;
+  getCachedToolResult?: <T = unknown>(cacheKey: string) => Promise<T | null>;
+  setCachedToolResult?: <T = unknown>(
+    cacheKey: string,
+    result: T,
+    ttlSeconds: number
+  ) => Promise<void>;
+  getStateValue?: <T = unknown>(key: string) => Promise<T | null>;
+  setStateValue?: <T = unknown>(
+    key: string,
+    value: T,
+    ttlSeconds?: number
+  ) => Promise<void>;
+  deleteStateValue?: (key: string) => Promise<void>;
 }
 
 export interface KeyValueStoreClient {
@@ -26,6 +47,7 @@ export interface KeyValueStoreClient {
     value: string,
     ttlSeconds?: number
   ): Promise<void | unknown> | void | unknown;
+  del?(key: string): Promise<void | unknown> | void | unknown;
   keys?(pattern?: string): Promise<string[]> | string[];
 }
 
@@ -46,6 +68,13 @@ export function createCustomStorageAdapter(
     saveStep: handlers.saveStep,
     updateStepStatus: handlers.updateStepStatus,
     listSteps: handlers.listSteps,
+    saveToolExecution: handlers.saveToolExecution,
+    listToolExecutions: handlers.listToolExecutions,
+    getCachedToolResult: handlers.getCachedToolResult,
+    setCachedToolResult: handlers.setCachedToolResult,
+    getStateValue: handlers.getStateValue,
+    setStateValue: handlers.setStateValue,
+    deleteStateValue: handlers.deleteStateValue,
   };
 }
 
@@ -129,5 +158,49 @@ export class KeyValueStorageAdapter implements StepStorageAdapter {
       }
     }
     return records;
+  }
+
+  public async getCachedToolResult<T = unknown>(cacheKey: string): Promise<T | null> {
+    const raw = await this.client.get(`cache:${cacheKey}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  public async setCachedToolResult<T = unknown>(
+    cacheKey: string,
+    result: T,
+    ttlSeconds: number
+  ): Promise<void> {
+    await this.client.set(`cache:${cacheKey}`, JSON.stringify(result), ttlSeconds);
+  }
+
+  public async getStateValue<T = unknown>(key: string): Promise<T | null> {
+    const raw = await this.client.get(`state:${key}`);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      return null;
+    }
+  }
+
+  public async setStateValue<T = unknown>(
+    key: string,
+    value: T,
+    ttlSeconds?: number
+  ): Promise<void> {
+    await this.client.set(`state:${key}`, JSON.stringify(value), ttlSeconds);
+  }
+
+  public async deleteStateValue(key: string): Promise<void> {
+    if (this.client.del) {
+      await this.client.del(`state:${key}`);
+      return;
+    }
+    await this.client.set(`state:${key}`, "", 0);
   }
 }

@@ -54,3 +54,48 @@ export class ToolAccessDeniedError extends Error {
     this.requiredRole = requiredRole;
   }
 }
+
+export class CircularToolCallError extends Error {
+  public readonly cycle: string[];
+
+  constructor(cycle: string[]) {
+    super(`Circular tool call detected: ${cycle.join(" -> ")}`);
+    this.name = "CircularToolCallError";
+    this.cycle = cycle;
+  }
+}
+
+export class ToolCallDepthExceededError extends Error {
+  public readonly depth: number;
+  public readonly maxDepth: number;
+
+  constructor(depth: number, maxDepth: number) {
+    super(`Tool call depth limit exceeded: depth ${depth} exceeds max allowed depth of ${maxDepth}.`);
+    this.name = "ToolCallDepthExceededError";
+    this.depth = depth;
+    this.maxDepth = maxDepth;
+  }
+}
+
+export class ToolSubCallQuotaError extends Error {
+  public readonly totalCalls: number;
+  public readonly maxCalls: number;
+
+  constructor(totalCalls: number, maxCalls: number) {
+    super(`Tool sub-call quota exceeded: ${totalCalls} calls exceeds session quota of ${maxCalls}.`);
+    this.name = "ToolSubCallQuotaError";
+    this.totalCalls = totalCalls;
+    this.maxCalls = maxCalls;
+  }
+}
+
+export class ToolNotFoundError extends Error {
+  public readonly toolId: string;
+
+  constructor(toolId: string) {
+    super(`Tool not found in registry: "${toolId}".`);
+    this.name = "ToolNotFoundError";
+    this.toolId = toolId;
+  }
+}
+
