@@ -40,6 +40,7 @@ flowchart LR
 - 🛡️ **Active Security & PII Redaction**: In-flight masking of emails, phone numbers, and French/EU identifiers before sending to cloud providers. Blocks prompt injection & jailbreaks.
 - 🔀 **Zero-Downtime Multi-Model Failover**: If DeepSeek or Mistral returns HTTP 429/500, seamlessly failover to a backup provider (or local Ollama) in milliseconds.
 - 🔧 **Self-Repairing Structured Outputs**: Strict Zod runtime validation with automated markdown/JSON repair if the LLM hallucinates formatting.
+- 🤖 **Durable Agent Harness & PII Shield (`avantgate/agent`)**: Serverless memoized step execution (`step.run()`), native Human-in-the-Loop approval (`step.waitForApproval()`), and Dual-Channel tool data isolation without Temporal or Redis.
 - 📦 **100% Framework Agnostic**: Works in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
 
 ---
@@ -54,6 +55,8 @@ flowchart LR
 | **In-Flight PII Redaction** | ❌ Logs all raw data | ✅ **Automatic local masking** before API dispatch |
 | **Multi-Provider Failover** | ❌ No | ✅ **Built-in Fallback Router & Exponential Retry** |
 | **Zod Schema Auto-Repair** | ❌ No | ✅ **Built-in JSON Heuristic Repair** |
+| **Durable Workflow & HITL** | Requires Temporal / Inngest | ✅ **Built-in In-Process Step Runner & HITL** |
+| **Tool PII & Dual-Channel** | ❌ No | ✅ **Built-in `createIsolatedTool`** |
 | **Telemetry Network Latency** | ❌ +50ms - 200ms per trace call | ✅ **0 ms** (In-process memory accounting) |
 
 ---
@@ -67,6 +70,14 @@ pnpm add avantgate zod
 # or
 yarn add avantgate zod
 ```
+
+### 🧩 Subpath Exports
+
+| Import Path | Description |
+|---|---|
+| `avantgate` | Core control plane: token budgets, cost ledger, prompt guards, multi-model failover & Zod repair. |
+| `avantgate/finance` | Financial data normalizer (accounting parentheses, EU/US/UK/CH currencies & magnitudes). |
+| `avantgate/agent` | Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation & storage adapters. |
 
 ---
 
@@ -303,6 +314,66 @@ console.log(result.modelUsed);  // Final provider model that succeeded
 
 ---
 
+### 7. Durable Agent Harness & Dual-Channel Tool Isolation (`avantgate/agent`)
+
+Deploy enterprise-grade, stateful TypeScript agents without spinning up Temporal, Inngest, or Redis queues:
+
+```typescript
+import { createIsolatedTool, createStepRunner, StepSuspendedError } from "avantgate/agent";
+import { z } from "zod";
+
+// 1. Dual-Channel Isolated Tool (Automatic PII redaction + direct UI client streaming)
+const fetchClientDataTool = createIsolatedTool({
+  name: "fetch_client_data",
+  description: "Fetches corporate client dossier",
+  parameters: z.object({ clientId: z.string() }),
+  async execute({ clientId }) {
+    return {
+      clientId,
+      ssn: "1 85 12 75 108 123 45", // Auto-redacted before reaching LLM!
+      email: "finance@corp.fr",
+      turnover: 1500000,
+    };
+  },
+  // Rich data sent directly to the client UI (out-of-band)
+  toClientData(data) {
+    uiSocket.emit("client_dossier", data);
+  },
+  // Safe minimal summary for LLM context window (saves tokens and protects privacy)
+  toLLMSummary(data) {
+    return { clientId: data.clientId, note: "Dossier dispatched to UI" };
+  },
+});
+
+// 2. Serverless Durable Step Execution & Human-in-the-Loop (HITL)
+const runner = createStepRunner({ workflowId: "wf-deal-42" });
+
+try {
+  // Idempotent execution: memoized and skipped on re-run if already completed
+  const scoring = await runner.run("risk-assessment", async () => {
+    return await computeRiskScore();
+  });
+
+  // Suspends execution cleanly until human validation
+  const approval = await runner.waitForApproval("director-signature", {
+    metadata: { dealAmount: 250000 },
+  });
+
+  // Continues seamlessly after approval
+  await runner.run("finalize-deal", async () => {
+    return await commitContract(approval);
+  });
+} catch (error) {
+  if (error instanceof StepSuspendedError) {
+    console.log(`Workflow paused at step [${error.stepId}] awaiting human validation.`);
+  }
+}
+```
+
+> 📖 **Full Agent Documentation & Storage Adapters (Memory, Custom, Key-Value, Prisma, SQLite)**: [docs/agent.md](docs/agent.md)
+
+---
+
 ## 🏗️ Architecture & Extensibility
 
 AvantGate is built around clean **Ports and Adapters**:
@@ -365,16 +436,21 @@ npm test
 
 ## 🙏 Acknowledgements & Credits
 
-AvantGate builds upon foundational ideas and inspirations from the open source AI engineering community:
+AvantGate builds upon foundational ideas and inspirations from the open source AI engineering and durable execution communities:
+
+### 🛡️ In-Process Control & Production Layers
 - Special credit to [**Emmimal/control-layer**](https://github.com/Emmimal/control-layer) for pioneering the in-process control layer architecture.
 - Valuable insights and launch safety principles inspired by [**ShipYourAI.com**](https://shipyourai.com).
-
-### 📚 Related Series — Production Layers for LLM Systems (by Emmimal)
-AvantGate is inspired by and designed to compose with the production layers series:
 - **[context-engine](https://github.com/Emmimal/context-engine)** — Retrieval, re-ranking, memory decay, and token budget control for RAG systems. *The control layer handles what the model returns. The context engine handles what it receives. They compose.*
 - **[RAG Is Blind to Time — Temporal Layer](https://github.com/Emmimal/temporal-layer)** — Temporal awareness layer for RAG systems that treats time as a first-class retrieval signal.
 - **[LLM Evals Are Based on Vibes — Evaluation Layer](https://github.com/Emmimal/eval-layer)** — Evaluation layer that replaces gut-feel shipping decisions with measurable output quality gates.
 - **[PyTorch NaNs Are Silent Killers — NaN Catch Hook](https://github.com/Emmimal/nan-hook)** — Lightweight hook that catches NaN propagation at the exact layer it originates, in under 3ms overhead.
+
+### 🤖 Durable Workflows & Agent Architecture (`avantgate/agent`)
+- **[Inngest](https://www.inngest.com)** & **[Temporal](https://temporal.io)** — The developer experience of durable step memoization (`step.run()`) and human validation pauses (`step.waitForApproval()`), reimagined here as a **$0-infrastructure, serverless in-process harness** without requiring external worker queues or Redis clusters.
+- **[Vercel AI SDK (`ai`)](https://sdk.vercel.ai)** — Standardized TypeScript tool schema contracts (`parameters`, `execute`) natively embraced and augmented by `createIsolatedTool`.
+- **Least-Privilege & Dual-Channel Isolation** — Security patterns separating sensitive payload data (streamed out-of-band directly to trusted user interfaces) from LLM prompts (receiving sanitized summaries), preventing context pollution and PII leakage.
+- **Alistair Cockburn's Ports & Adapters (Hexagonal Architecture)** — Pure domain isolation enabling developers to plug any database (Prisma, SQLite, Drizzle, Kysely, Mongo, Redis) with zero hard framework dependencies.
 
 ---
 

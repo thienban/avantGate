@@ -1,13 +1,17 @@
 {
   "name": "avantgate",
-  "version": "1.1.0",
-  "description": "Zero-infrastructure, in-process LLM control plane: real-time cost control, token budgets, PII redaction, prompt guardrails, and multi-model failover without hosting servers.",
+  "version": "1.2.0",
+  "description": "Zero-infrastructure, in-process LLM control plane: real-time cost control, token budgets, PII redaction, prompt guardrails, multi-model failover, and durable agent workflow harness without hosting servers.",
   "author": "Antigravity & LexTalk Team",
   "license": "MIT",
   "keywords": [
     "avantgate",
     "llm",
     "ai",
+    "agent",
+    "durable-execution",
+    "human-in-the-loop",
+    "dual-channel",
     "cost-control",
     "token-budget",
     "guardrails",
@@ -37,6 +41,11 @@
       "import": "./dist/finance/index.mjs",
       "require": "./dist/finance/index.js"
     },
+    "./agent": {
+      "types": "./dist/agent/index.d.ts",
+      "import": "./dist/agent/index.mjs",
+      "require": "./dist/agent/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -45,11 +54,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/finance/index.ts --format cjs --format esm --dts --clean",
-    "test": "tsx tests/avantgate.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts",
+    "build": "tsup src/index.ts src/finance/index.ts src/agent/index.ts --format cjs --format esm --dts --clean",
+    "test": "tsx tests/avantgate.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && npm run test:agent",
     "test:finance": "tsx tests/financial-normalizer.test.ts",
     "test:prompts": "tsx tests/prompt-builder.test.ts",
     "test:pii": "tsx tests/pii-extended.test.ts",
+    "test:agent": "tsx tests/agent/step-runner.test.ts && tsx tests/agent/isolated-tool.test.ts && tsx tests/agent/tool-patterns.test.ts && tsx tests/agent/storage-adapters.test.ts",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
