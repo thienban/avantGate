@@ -18,11 +18,12 @@ function sanitizeString(value: string): { text: string; count: number } {
 
 function sanitizeArray(
   items: unknown[],
-  options: AuditToolResultOptions
+  options: AuditToolResultOptions,
+  visited: WeakSet<object>
 ): { sanitized: unknown[]; count: number } {
   let totalCount = 0;
   const sanitized = items.map((item) => {
-    const res = recursivelySanitize(item, options);
+    const res = recursivelySanitize(item, options, visited);
     totalCount += res.count;
     return res.sanitized;
   });
@@ -31,13 +32,14 @@ function sanitizeArray(
 
 function sanitizeObject(
   target: Record<string, unknown>,
-  options: AuditToolResultOptions
+  options: AuditToolResultOptions,
+  visited: WeakSet<object>
 ): { sanitized: Record<string, unknown>; count: number } {
   let totalCount = 0;
   const copy: Record<string, unknown> = {};
 
   for (const [key, val] of Object.entries(target)) {
-    const res = recursivelySanitize(val, options);
+    const res = recursivelySanitize(val, options, visited);
     copy[key] = res.sanitized;
     totalCount += res.count;
   }
@@ -46,21 +48,24 @@ function sanitizeObject(
 
 function recursivelySanitize(
   data: unknown,
-  options: AuditToolResultOptions
+  options: AuditToolResultOptions,
+  visited: WeakSet<object> = new WeakSet<object>()
 ): { sanitized: unknown; count: number } {
   if (typeof data === "string") {
     const res = sanitizeString(data);
     return { sanitized: res.text, count: res.count };
   }
 
-  if (Array.isArray(data)) {
-    const res = sanitizeArray(data, options);
-    return { sanitized: res.sanitized, count: res.count };
-  }
-
   if (data !== null && typeof data === "object") {
-    const res = sanitizeObject(data as Record<string, unknown>, options);
-    return { sanitized: res.sanitized, count: res.count };
+    if (visited.has(data)) {
+      return { sanitized: "[CIRCULAR_REFERENCE]", count: 0 };
+    }
+    visited.add(data);
+
+    if (Array.isArray(data)) {
+      return sanitizeArray(data, options, visited);
+    }
+    return sanitizeObject(data as Record<string, unknown>, options, visited);
   }
 
   return { sanitized: data, count: 0 };

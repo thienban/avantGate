@@ -2,6 +2,7 @@ import type {
   StepRecord,
   StepStatus,
   StepStorageAdapter,
+  ToolExecutionRecord,
 } from "../types";
 
 export interface MemoryAdapterOptions {
@@ -13,12 +14,25 @@ interface StoredEntry {
   expiresAt?: number;
 }
 
+interface CacheEntry {
+  result: unknown;
+  expiresAt: number;
+}
+
+interface StateEntry {
+  value: unknown;
+  expiresAt?: number;
+}
+
 /**
  * In-memory storage adapter for development, prototyping, and tests.
- * Zero-infrastructure and ultra-fast.
+ * Zero-infrastructure and ultra-fast with complete tool trace and cache support.
  */
 export class MemoryStorageAdapter implements StepStorageAdapter {
   private readonly storage = new Map<string, StoredEntry>();
+  private readonly toolExecutions: ToolExecutionRecord[] = [];
+  private readonly cacheStorage = new Map<string, CacheEntry>();
+  private readonly stateStorage = new Map<string, StateEntry>();
   private readonly ttlMs?: number;
 
   constructor(options: MemoryAdapterOptions = {}) {
@@ -96,10 +110,74 @@ export class MemoryStorageAdapter implements StepStorageAdapter {
     return results;
   }
 
+  public async saveToolExecution(record: ToolExecutionRecord): Promise<void> {
+    this.toolExecutions.push(record);
+  }
+
+  public async listToolExecutions(
+    workflowId?: string,
+    stepId?: string
+  ): Promise<ToolExecutionRecord[]> {
+    return this.toolExecutions.filter((item) => {
+      if (workflowId && item.workflowId !== workflowId) return false;
+      if (stepId && item.stepId !== stepId) return false;
+      return true;
+    });
+  }
+
+  public async getCachedToolResult<T = unknown>(cacheKey: string): Promise<T | null> {
+    const entry = this.cacheStorage.get(cacheKey);
+    if (!entry) {
+      return null;
+    }
+    if (Date.now() > entry.expiresAt) {
+      this.cacheStorage.delete(cacheKey);
+      return null;
+    }
+    return entry.result as T;
+  }
+
+  public async setCachedToolResult<T = unknown>(
+    cacheKey: string,
+    result: T,
+    ttlSeconds: number
+  ): Promise<void> {
+    const expiresAt = Date.now() + ttlSeconds * 1000;
+    this.cacheStorage.set(cacheKey, { result, expiresAt });
+  }
+
+  public async getStateValue<T = unknown>(key: string): Promise<T | null> {
+    const entry = this.stateStorage.get(key);
+    if (!entry) {
+      return null;
+    }
+    if (entry.expiresAt && Date.now() > entry.expiresAt) {
+      this.stateStorage.delete(key);
+      return null;
+    }
+    return entry.value as T;
+  }
+
+  public async setStateValue<T = unknown>(
+    key: string,
+    value: T,
+    ttlSeconds?: number
+  ): Promise<void> {
+    const expiresAt = ttlSeconds ? Date.now() + ttlSeconds * 1000 : undefined;
+    this.stateStorage.set(key, { value, expiresAt });
+  }
+
+  public async deleteStateValue(key: string): Promise<void> {
+    this.stateStorage.delete(key);
+  }
+
   /**
-   * Resets internal in-memory map (useful for test isolation).
+   * Resets all internal in-memory maps (useful for test isolation).
    */
   public clear(): void {
     this.storage.clear();
+    this.toolExecutions.length = 0;
+    this.cacheStorage.clear();
+    this.stateStorage.clear();
   }
 }

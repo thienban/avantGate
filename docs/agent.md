@@ -253,3 +253,153 @@ const activeTools = await applyToolStrategy(registry.getAll(), compositeStrategy
 // Directly pass to Vercel AI SDK:
 // await generateText({ model, tools: activeTools, prompt: "..." });
 ```
+
+---
+
+## 🏷️ 5. Tool ID, Aliasing & Anonymization
+
+Separate your internal database/API names from the public labels exposed to the LLM:
+
+```typescript
+import { createIsolatedTool, ToolRegistry } from "avantgate/agent";
+import { z } from "zod";
+
+export const payrollTool = createIsolatedTool({
+  id: "sap_payroll_01",              // 🔑 Stable technical ID for O(1) KV lookup & audit logs
+  name: "internal_sap_payroll_v2",   // 🏷️ Internal technical name
+  alias: "lookup_employee_salary",    // 🔒 Sanitized public alias seen by the LLM
+  description: "Lookup corporate employee salary info",
+  parameters: z.object({ employeeId: z.string() }),
+  async execute(args) {
+    return await db.payrolls.find(args.employeeId);
+  },
+});
+
+const registry = new ToolRegistry();
+registry.register({
+  id: payrollTool._toolId,
+  name: payrollTool._toolName,
+  alias: payrollTool._toolAlias,
+  description: payrollTool.description,
+  tool: payrollTool,
+});
+
+// Fast O(1) Lookups:
+const tool = registry.getById("sap_payroll_01");
+const toolByAlias = registry.getByPublicName("lookup_employee_salary");
+
+// Export to Vercel AI SDK with anonymized keys:
+const aiSdkTools = registry.toRecord({ anonymize: true });
+// aiSdkTools will contain: { "lookup_employee_salary": payrollTool }
+```
+
+---
+
+## 🔗 6. Tool Chaining, Anti-Cycles & DB Memory (Blackboard & Cache)
+
+Allow tools to invoke sub-tools with cycle prevention, memory caching, and database telemetry:
+
+```typescript
+import { createIsolatedTool, createToolInvoker, SQLiteStorageAdapter } from "avantgate/agent";
+import Database from "better-sqlite3";
+
+const db = new Database("workflow.db");
+const storage = new SQLiteStorageAdapter(db); // Automatically creates tool execution & cache tables
+
+// 1. Sub-tool with idempotency caching
+const taxCalculator = createIsolatedTool({
+  id: "calc_vat",
+  name: "calc_vat",
+  description: "Calculate VAT",
+  cacheTTL: 3600, // 💾 Results cached for 1h in SQLite/memory (avoid re-computation on identical queries)
+  parameters: z.object({ amount: z.number() }),
+  async execute(args, context) {
+    // Shared Blackboard state access
+    await context?.state?.set("last_amount", args.amount);
+    return { vat: args.amount * 0.2 };
+  },
+});
+
+// 2. Parent tool invoking sub-tool safely
+const quoteGenerator = createIsolatedTool({
+  id: "generate_quote",
+  name: "generate_quote",
+  description: "Generate official customer quote",
+  parameters: z.object({ amount: z.number() }),
+  async execute(args, context) {
+    // 🔗 Safe sub-tool invocation (concurrency-safe & cycle-protected)
+    const vatRes = await context?.callTool<{ vat: number }>("calc_vat", {
+      amount: args.amount,
+    });
+    return {
+      subtotal: args.amount,
+      vat: vatRes?.vat ?? 0,
+      total: args.amount + (vatRes?.vat ?? 0),
+    };
+  },
+});
+
+// 3. Dispatcher with cycle guard and database tracing
+const invoker = createToolInvoker(registry, storage, {
+  maxDepth: 5,           // Throws ToolCallDepthExceededError if depth > 5
+  maxTotalSubCalls: 20,  // Throws ToolSubCallQuotaError if calls > 20
+});
+
+// Traces recorded in avantgate_tool_executions table:
+const quote = await invoker.invokeTool("generate_quote", { amount: 500 });
+```
+
+---
+
+## 📡 6. Observability, Telemetry & Cloud Platform Bridge
+
+`avantgate/agent` connects directly to the avantGate Observability Platform or any custom HTTP telemetry sink using non-blocking, zero-dependency background batching.
+
+### A. HttpTelemetryExporter ($0 Infrastructure & Fire-and-Forget)
+
+Sends events asynchronously to `POST /api/v1/ingest/events` with automatic token and cost aggregation:
+
+```typescript
+import { HttpTelemetryExporter } from "avantgate/agent";
+
+const exporter = new HttpTelemetryExporter({
+  apiKey: process.env.AVANTGATE_API_KEY!, // e.g. "ag_live_..."
+  agentName: "sales-assistant",
+  batchIntervalMs: 5000,                  // Flush every 5 seconds
+  maxBatchSize: 50,                       // Or when 50 events are buffered
+  onError: (err) => console.error("Telemetry failed:", err),
+});
+```
+
+### B. PlatformStorageAdapter (Hexagonal Hybrid Mirror)
+
+Preserves local durability (SQLite, Prisma, Memory) while mirroring step lifecycles and tool execution trees to the cloud in real time:
+
+```typescript
+import {
+  PlatformStorageAdapter,
+  SQLiteStorageAdapter,
+  HttpTelemetryExporter,
+  createStepRunner,
+} from "avantgate/agent";
+import Database from "better-sqlite3";
+
+const db = new Database("agent.db");
+const localDb = new SQLiteStorageAdapter(db);
+
+const exporter = new HttpTelemetryExporter({
+  apiKey: process.env.AVANTGATE_API_KEY!,
+});
+
+// Hybrid adapter: writes to SQLite immediately, mirrors to Cloud asynchronously
+const storage = new PlatformStorageAdapter({
+  primaryStorage: localDb,
+  exporter,
+});
+
+const runner = createStepRunner({
+  workflowId: "order-wf-42",
+  runId: "session-run-42",
+  storage,
+});
+```

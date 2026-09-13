@@ -7,6 +7,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Zod Native](https://img.shields.io/badge/Schema-Zod%20Native-orange)](https://zod.dev/)
 [![Zero Infra](https://img.shields.io/badge/Infrastructure-Zero%20Servers-emerald)](#why-avantgate)
+[![SaaS Platform](https://img.shields.io/badge/avantGate%20Cloud-Coming%20Soon-8A2BE2)](#-introducing-the-avantgate-observability-platform-open-core-saas)
 
 ---
 
@@ -33,6 +34,46 @@ flowchart LR
 
 ---
 
+## 🌐 Introducing the AvantGate Observability Platform (Open-Core SaaS)
+
+> **The Best of Both Worlds: $0 In-Process Local Execution + Enterprise Centralized Governance.**
+
+While the open-source **`avantgate` SDK** runs locally with zero infrastructure and zero latency, enterprise teams running autonomous agents in production need a unified control plane to audit compliance, monitor team budgets, and manage human approvals.
+
+| Dimension | 📦 Local SDK (`thienban/avantGate`) | 🔒 Cloud Platform (`avantGate Cloud`) |
+|---|---|---|
+| **Architecture** | 100% In-Process ($0 Infrastructure, zero servers) | Hosted Multi-Tenant SaaS or Private VPC deployment |
+| **Privacy & PII** | In-flight local PII redaction & memory isolation | Dual-Channel PII Inspector (GDPR / HIPAA audit proofs) |
+| **Durable Execution** | Serverless memoized steps & anti-cycle guards | Hierarchical Session Replay & Visual Causality Graph |
+| **Cost & FinOps** | Pre-flight token budgets & local ledger | Team spend attribution, model breakdowns & budget alerts |
+| **Human-in-the-Loop** | In-process execution pause (`waitForApproval()`) | Real-time SSE mission control inbox (1-click approvals) |
+| **Telemetry & Egress** | Zero overhead, optional background batching | High-throughput ingestion (`POST /api/v1/ingest/events`) |
+| **Pricing** | **Free & Open-Source ($0/month forever)** | **Starter, Pro & Enterprise tiers** |
+
+### 🌟 Core Capabilities of the SaaS Platform:
+
+1. 📊 **FinOps & Cost Engine (Helicone-Inspired)**:
+   - Cent-accurate spend attribution across OpenAI, Anthropic, Mistral, DeepSeek, and custom models.
+   - Real-time budget alerts, cost breakdown per workspace/agent/department, and usage projections.
+
+2. 📼 **Hierarchical Session Replay & Timeline Graph (AgentOps-Inspired)**:
+   - Step-by-step causality tape visualizing exact reasoning steps, nested tool calls (`parentToolId`, call depth), and latencies (P50/P95).
+   - Replay failed runs to understand exact edge cases and context state.
+
+3. 🛡️ **Dual-Channel PII Inspector & GDPR/HIPAA Proofs**:
+   - Side-by-side verification showing the **unredacted data delivered securely to the user UI** versus the **sanitized summary received by the LLM**.
+   - Immutable audit trail proving zero confidential client data was leaked to AI model providers.
+
+4. 🚨 **Infinite Loop Shield**:
+   - In-process and cloud-level circuit breakers detecting repetitive identical tool calls or deep cyclic dependencies (`Tool A ➔ Tool B ➔ Tool A`).
+
+5. 📬 **Human-in-the-Loop Mission Control**:
+   - Real-time Server-Sent Events (SSE) inbox to approve, adjust, or reject pending sensitive actions (`step.waitForApproval()`) in one click.
+
+> 🚀 **Interested in Early Access or Private VPC Deployment?** Check our technical specification in [tickets/DESIGN-005](tickets/DESIGN-005-agent-data-observability-platform.md) or stay tuned for the public cloud launch!
+
+---
+
 ## 🚀 Key Features
 
 - 💰 **Pre-Flight Token Budgeting**: Rejects or truncates requests exceeding budget *before* invoking external APIs.
@@ -41,6 +82,7 @@ flowchart LR
 - 🔀 **Zero-Downtime Multi-Model Failover**: If DeepSeek or Mistral returns HTTP 429/500, seamlessly failover to a backup provider (or local Ollama) in milliseconds.
 - 🔧 **Self-Repairing Structured Outputs**: Strict Zod runtime validation with automated markdown/JSON repair if the LLM hallucinates formatting.
 - 🤖 **Durable Agent Harness & PII Shield (`avantgate/agent`)**: Serverless memoized step execution (`step.run()`), native Human-in-the-Loop approval (`step.waitForApproval()`), and Dual-Channel tool data isolation without Temporal or Redis.
+- 📡 **Zero-Dependency Telemetry Bridge (`HttpTelemetryExporter`, `PlatformStorageAdapter`)**: Mirror in-process executions and hierarchical tool traces asynchronously to avantGate Cloud or custom HTTP sinks with $0 external npm dependencies.
 - 📦 **100% Framework Agnostic**: Works in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
 
 ---
@@ -58,6 +100,8 @@ flowchart LR
 | **Durable Workflow & HITL** | Requires Temporal / Inngest | ✅ **Built-in In-Process Step Runner & HITL** |
 | **Tool PII & Dual-Channel** | ❌ No | ✅ **Built-in `createIsolatedTool`** |
 | **Telemetry Network Latency** | ❌ +50ms - 200ms per trace call | ✅ **0 ms** (In-process memory accounting) |
+| **Central Web Dashboard** | Heavy self-hosted web app | ✅ **Optional Cloud Platform** (Plug in 2 lines via `PlatformStorageAdapter`) |
+| **Hierarchical Session Replay** | ❌ Flat span waterfall | ✅ **Causality Tree + Dual-Channel PII Inspector** |
 
 ---
 
@@ -374,6 +418,43 @@ try {
 
 ---
 
+### 8. Streaming Telemetry to AvantGate Cloud (Observability & Replay)
+
+Connect your agents to the centralized AvantGate Cloud platform in 2 lines of code. It persists locally first, and streams telemetry in background with **zero performance impact**:
+
+```typescript
+import {
+  PlatformStorageAdapter,
+  SQLiteStorageAdapter,
+  HttpTelemetryExporter,
+  createStepRunner,
+} from "avantgate/agent";
+import Database from "better-sqlite3";
+
+// 1. Configure the non-blocking background telemetry exporter
+const exporter = new HttpTelemetryExporter({
+  apiKey: process.env.AVANTGATE_API_KEY!, // "ag_live_xxxxxxxxxxxx"
+  endpoint: "https://api.avantgate.cloud/api/v1/ingest/events",
+  agentName: "prospect-qualifier",
+  batchIntervalMs: 5000,
+});
+
+// 2. Hybrid Hexagonal Adapter: SQLite local durability + Cloud mirror
+const storage = new PlatformStorageAdapter({
+  primaryStorage: new SQLiteStorageAdapter(new Database("agent.db")),
+  exporter,
+});
+
+// 3. StepRunner with unified runId for FinOps & Session Replay
+const runner = createStepRunner({
+  workflowId: "deal-pipeline-42",
+  runId: "run-2026-09-13-alpha",
+  storage,
+});
+```
+
+---
+
 ## 🏗️ Architecture & Extensibility
 
 AvantGate is built around clean **Ports and Adapters**:
@@ -445,6 +526,10 @@ AvantGate builds upon foundational ideas and inspirations from the open source A
 - **[RAG Is Blind to Time — Temporal Layer](https://github.com/Emmimal/temporal-layer)** — Temporal awareness layer for RAG systems that treats time as a first-class retrieval signal.
 - **[LLM Evals Are Based on Vibes — Evaluation Layer](https://github.com/Emmimal/eval-layer)** — Evaluation layer that replaces gut-feel shipping decisions with measurable output quality gates.
 - **[PyTorch NaNs Are Silent Killers — NaN Catch Hook](https://github.com/Emmimal/nan-hook)** — Lightweight hook that catches NaN propagation at the exact layer it originates, in under 3ms overhead.
+
+### 📊 FinOps & Observability Platforms
+- **[Helicone](https://github.com/Helicone/helicone)** — Pioneering LLM request caching, granular cost estimation, and developer-first proxy design that inspired our FinOps engine and semantic tool caching patterns.
+- **[AgentOps](https://github.com/AgentOps-AI/agentops)** — State-of-the-art agent tracking, session replay visualization, and recursive loop detection that inspired our Session Replay and Infinite Loop Shield.
 
 ### 🤖 Durable Workflows & Agent Architecture (`avantgate/agent`)
 - **[Inngest](https://www.inngest.com)** & **[Temporal](https://temporal.io)** — The developer experience of durable step memoization (`step.run()`) and human validation pauses (`step.waitForApproval()`), reimagined here as a **$0-infrastructure, serverless in-process harness** without requiring external worker queues or Redis clusters.

@@ -11,17 +11,64 @@ export type StepStatus =
   | "WAITING_APPROVAL";
 
 /**
+ * Token usage metrics for LLM calls and tool executions.
+ */
+export interface TokenUsage {
+  promptTokens?: number;
+  completionTokens?: number;
+  totalTokens?: number;
+}
+
+/**
  * Record representing a durable step stored in persistence.
  */
 export interface StepRecord<TResult = unknown> {
   workflowId: string;
   stepId: string;
+  runId?: string;
   status: StepStatus;
   result?: TResult;
   error?: string;
+  piiDetectedCount?: number;
+  tokens?: TokenUsage;
+  costUsd?: number;
   metadata?: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * Record representing a durable tool execution stored in persistence for hierarchical tracing.
+ */
+export interface ToolExecutionRecord {
+  executionId: string;
+  workflowId?: string;
+  stepId?: string;
+  runId?: string;
+  toolId: string;
+  parentToolId?: string;
+  aliasUsed?: string;
+  depth: number;
+  inputArgs?: unknown;
+  outputSummary?: unknown;
+  durationMs: number;
+  status: "SUCCESS" | "FAILED";
+  error?: string;
+  cached?: boolean;
+  piiFilteredCount?: number;
+  tokens?: TokenUsage;
+  costUsd?: number;
+  createdAt: string;
+}
+
+/**
+ * Shared Blackboard state interface enabling inter-tool data exchange without context pollution.
+ */
+export interface ToolSharedState {
+  get<T = unknown>(key: string): Promise<T | null>;
+  set<T = unknown>(key: string, value: T, ttlSeconds?: number): Promise<void>;
+  delete(key: string): Promise<void>;
+  clear?(): Promise<void>;
 }
 
 /**
@@ -39,6 +86,16 @@ export interface StepStorageAdapter {
     patch?: Partial<StepRecord<T>>
   ): Promise<void>;
   listSteps(workflowId: string): Promise<StepRecord[]>;
+
+  // Optional ports for tool execution tracing, caching and blackboard memory
+  saveToolExecution?(record: ToolExecutionRecord): Promise<void>;
+  listToolExecutions?(workflowId?: string, stepId?: string): Promise<ToolExecutionRecord[]>;
+  getCachedToolResult?<T = unknown>(cacheKey: string): Promise<T | null>;
+  setCachedToolResult?<T = unknown>(cacheKey: string, result: T, ttlSeconds: number): Promise<void>;
+  getStateValue?<T = unknown>(key: string): Promise<T | null>;
+  setStateValue?<T = unknown>(key: string, value: T, ttlSeconds?: number): Promise<void>;
+  deleteStateValue?(key: string): Promise<void>;
+  clearStateValues?(): Promise<void>;
 }
 
 /**
@@ -67,16 +124,26 @@ export interface StepRunnerContext {
  */
 export interface StepRunnerConfig {
   workflowId: string;
+  runId?: string;
   storage?: StepStorageAdapter;
 }
 
 /**
- * Context received by tool execution.
+ * Context received by tool execution, supporting inter-tool chaining and shared state.
  */
 export interface ToolExecutionContext {
   toolCallId?: string;
   messages?: unknown[];
   abortSignal?: AbortSignal;
+  workflowId?: string;
+  runId?: string;
+  stepId?: string;
+  callChain?: readonly string[];
+  callTool?: <TResult = unknown>(toolId: string, args: unknown) => Promise<TResult>;
+  state?: ToolSharedState;
+  storage?: StepStorageAdapter;
+  tokens?: TokenUsage;
+  costUsd?: number;
   [key: string]: unknown;
 }
 
@@ -108,12 +175,16 @@ export type ClientDataCallback<TResult = unknown> = (
 ) => void | Promise<void>;
 
 /**
- * Configuration for creating an isolated tool with PII protection and Dual-Channel.
+ * Configuration for creating an isolated tool with PII protection, Dual-Channel,
+ * stable ID, aliasing and caching.
  */
 export interface IsolatedToolConfig<TArgs = any, TResult = any> {
+  id?: string;
   name: string;
+  alias?: string;
   description: string;
   parameters: z.ZodType<TArgs> | unknown;
+  cacheTTL?: number;
   execute: (args: TArgs, context?: ToolExecutionContext) => Promise<TResult>;
   toLLMSummary?: LLMSummaryTransformer<TArgs, TResult>;
   toClientData?: ClientDataCallback<TResult>;
@@ -129,17 +200,23 @@ export interface VercelAiCoreTool<TArgs = any, TResult = any> {
   parameters: any;
   execute: (args: TArgs, context?: ToolExecutionContext) => Promise<TResult>;
   /**
-   * Internal reference to isolated tool configuration.
+   * Internal identifiers and metadata.
    */
+  readonly _toolId: string;
   readonly _toolName: string;
+  readonly _toolAlias?: string;
   readonly _isIsolated: boolean;
+  readonly _cacheTTL?: number;
+  _lastPiiFilteredCount?: number;
 }
 
 /**
  * Metadata and descriptor for registered tools in the registry.
  */
 export interface RegisteredTool<TArgs = any, TResult = any> {
+  id: string;
   name: string;
+  alias?: string;
   description: string;
   phases?: string[];
   requiredRoles?: string[];
