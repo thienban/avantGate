@@ -89,7 +89,7 @@ yarn add avantgate zod
 |---|---|
 | `avantgate` | Core control plane: token budgets, cost ledger, prompt guards, multi-model failover & Zod repair. |
 | `avantgate/finance` | Financial data normalizer (accounting parentheses, EU/US/UK/CH currencies & magnitudes). |
-| `avantgate/agent` | Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation & storage adapters. |
+| `avantgate/agent` | *(Preview / Experimental)* Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation & storage adapters. |
 
 ---
 
@@ -229,7 +229,70 @@ try {
 
 ---
 
-### 4. In-Process Prompt Engine (`PromptTemplate`, `PromptBuilder`, `PromptRegistry`)
+### 5. Pre-Flight Budget Guarding (`maxTokenBudget` & `maxCostUSD`)
+
+AvantGate enforces financial and resource limits **before** making external API calls. If a prompt or estimated cost exceeds your budget, it fails immediately with a `BudgetExceededError`, avoiding wasted spend:
+
+```typescript
+import { createAvantGate, BudgetExceededError } from "avantgate";
+
+const control = createAvantGate({
+  primary: { provider: "deepseek", model: "deepseek-chat", apiKey: process.env.DEEPSEEK_API_KEY! },
+  maxTokenBudget: 500, // Maximum allowed tokens for request + completion
+  maxCostUSD: 0.005,    // Block if estimated input cost exceeds half a cent
+});
+
+try {
+  await control.execute({
+    userQuery: "Exhaustive contract legal analysis...",
+  });
+} catch (error) {
+  if (error instanceof BudgetExceededError) {
+    console.warn("Blocked by AvantGate Pre-Flight Budget Guard:", error.message);
+  }
+}
+```
+
+---
+
+### 6. Decoupled Token Pricing & Database Adapter (`PricingAdapter`, `PricingRegistry`)
+
+Token prices vary across distributors (`openrouter`, `mistral`, `deepseek`, `azure`). AvantGate eliminates hardcoded pricing: you can dynamically plug your own database (Prisma, PostgreSQL, etc.) with in-memory TTL caching for **0 ms overhead**:
+
+```typescript
+import { createAvantGate, type PricingAdapter, PricingRegistry } from "avantgate";
+import { prisma } from "@/lib/prisma";
+
+// 1. Connect your database with automatic in-memory TTL caching (5 minutes)
+const control = createAvantGate({
+  primary: { provider: "deepseek", model: "deepseek-chat", apiKey: process.env.DEEPSEEK_API_KEY! },
+  pricingAdapter: {
+    async fetchPrice(model, provider) {
+      const dbPrice = await prisma.modelPricing.findFirst({
+        where: { model, distributor: provider, isActive: true },
+      });
+      if (!dbPrice) return undefined; // Falls back to default registry
+      return {
+        promptUSDPerMillion: Number(dbPrice.promptPriceUSDPerM),
+        completionUSDPerMillion: Number(dbPrice.completionPriceUSDPerM),
+      };
+    },
+  },
+  pricingCacheTtlMs: 5 * 60 * 1000,
+});
+
+// 2. Or override distributor prices globally at runtime
+PricingRegistry.registerPrice("openrouter/deepseek/deepseek-chat", {
+  promptUSDPerMillion: 0.18,
+  completionUSDPerMillion: 0.35,
+});
+```
+
+> 📖 **Deep Dive & Production DB Setup** : Consultez le guide complet [docs/pricing.md](docs/pricing.md) pour les schémas Prisma, Drizzle, invalidation de cache à chaud, et scripts de seed.
+
+---
+
+### 7. In-Process Prompt Engine (`PromptTemplate`, `PromptBuilder`, `PromptRegistry`)
 
 Assemble prompts systematically with strict token slots, KV-cache prefix hits, automated Zod output contracts, and jailbreak guardrails.
 
@@ -271,7 +334,7 @@ const messages = builder.toMessages();
 
 ---
 
-### 5. Modular Financial Normalizer & Accounting Strategies (`avantgate/finance`)
+### 8. Modular Financial Normalizer & Accounting Strategies (`avantgate/finance`)
 
 Opt-in, zero-overhead financial accounting module. Automatically normalizes negative parentheses `(150 000)` ➔ `-150000`, magnitudes (`1 850 k€` ➔ `1850000`), European decimal commas, and currency symbols across jurisdictions (**FR PCG / Cerfa**, **US GAAP**, **UK IFRS**, **Swiss CO**).
 
@@ -306,7 +369,7 @@ const data = validateWithZod(rawLLMText, schema, { financialNormalizer: true, ju
 
 ---
 
-### 6. Unified `generateStructuredOutput` with Multi-Provider Failover
+### 9. Unified `generateStructuredOutput` with Multi-Provider Failover
 
 Extract type-safe data with zero boilerplate. Automatically handles failover, retries, cost tracking, and financial repair:
 
@@ -326,9 +389,13 @@ console.log(result.modelUsed);  // Final provider model that succeeded
 
 ---
 
-### 7. Durable Agent Harness & Dual-Channel Tool Isolation (`avantgate/agent`)
+### 10. Durable Agent Harness & Dual-Channel Tool Isolation (`avantgate/agent`)
 
-Deploy enterprise-grade, stateful TypeScript agents without spinning up Temporal, Inngest, or Redis queues:
+> [!WARNING]
+> **NOT USED IN PRODUCTION / EXPERIMENTAL PREVIEW**  
+> The `avantgate/agent` submodule is currently in developer preview and is **NOT intended for production workloads**. Internal APIs, causality tracing, and storage contracts are subject to breaking changes. For production environments, use the core control plane (`avantgate`) and financial normalizers (`avantgate/finance`).
+
+Deploy stateful TypeScript agents without spinning up Temporal, Inngest, or Redis queues:
 
 ```typescript
 import { createIsolatedTool, createStepRunner, StepSuspendedError } from "avantgate/agent";
@@ -386,7 +453,7 @@ try {
 
 ---
 
-### 8. Streaming Telemetry to an External Sink (Observability & Replay)
+### 11. Streaming Telemetry to an External Sink (Observability & Replay)
 
 Connect your agents to an external observability sink or custom webhook in 2 lines of code. It persists locally first, and streams telemetry in the background with **zero performance impact**:
 

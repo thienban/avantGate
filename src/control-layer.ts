@@ -9,14 +9,16 @@ import type {
   ProviderConfig,
   LLMUsage,
 } from "./types";
+import { ConfigurationError, BudgetExceededError } from "./types";
 import { validateUserInput } from "./input-guard";
 import { sanitizePII } from "./sanitizer";
-import { calculateCostUSD } from "./pricing";
+import { calculateCostUSD, CachedPricingAdapter, resolveModelPrice } from "./pricing";
 import { validateWithZod } from "./response-validator";
+import { createHttpProviderClient } from "./providers/http-client";
 
 interface ProviderDispatchOutput {
   responseText: string;
-  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number; promptCacheHitTokens?: number };
   modelUsed: string;
   failoverOccurred: boolean;
   attempts: number;
@@ -24,9 +26,65 @@ interface ProviderDispatchOutput {
 
 export class AvantGateControlLayer {
   private config: ControlLayerConfig;
+  private cachedPricingAdapter?: CachedPricingAdapter;
 
   constructor(config: ControlLayerConfig) {
-    this.config = config;
+    this.config = {
+      ...config,
+      primary: this.resolveProviderConfig(config.primary)!,
+      fallback: this.resolveProviderConfig(config.fallback),
+      emergencyFallback: this.resolveProviderConfig(config.emergencyFallback),
+    };
+
+    if (config.pricingAdapter) {
+      this.cachedPricingAdapter = new CachedPricingAdapter(
+        config.pricingAdapter,
+        config.pricingCacheTtlMs ?? 5 * 60 * 1000
+      );
+    }
+  }
+
+  private resolveProviderConfig(provider?: ProviderConfig): ProviderConfig | undefined {
+    if (!provider) return undefined;
+    if (provider.client) return provider;
+    if (provider.apiKey || provider.baseUrl || provider.provider === "ollama") {
+      return {
+        ...provider,
+        client: createHttpProviderClient(provider),
+      };
+    }
+    return provider;
+  }
+
+  private findProviderConfig(provider?: string, model?: string): ProviderConfig | undefined {
+    const list = [this.config.primary, this.config.fallback, this.config.emergencyFallback].filter(
+      (p): p is ProviderConfig => Boolean(p)
+    );
+    if (provider) {
+      const matchProvider = list.find((p) => p.provider === provider);
+      if (matchProvider) return matchProvider;
+    }
+    if (model) {
+      const matchModel = list.find((p) => p.model === model);
+      if (matchModel) return matchModel;
+    }
+    return this.config.primary;
+  }
+
+  private calculateCost(
+    model: string,
+    promptTokens: number,
+    completionTokens: number,
+    cacheHitTokens: number = 0,
+    provider?: string
+  ): number {
+    const providerCfg = this.findProviderConfig(provider, model);
+    return calculateCostUSD(model, promptTokens, completionTokens, cacheHitTokens, {
+      provider: provider ?? providerCfg?.provider,
+      providerPricing: providerCfg?.pricing,
+      customPricing: this.config.customPricing,
+      adapter: this.cachedPricingAdapter,
+    });
   }
 
   private applySecurityGuards(userQuery: string): string {
@@ -46,6 +104,51 @@ export class AvantGateControlLayer {
     return userQuery;
   }
 
+  private checkPreflightBudget(estimatedPromptTokens: number, targetModel: string, provider?: string): void {
+    if (this.config.maxTokenBudget !== undefined && estimatedPromptTokens > this.config.maxTokenBudget) {
+      throw new BudgetExceededError(
+        `[AvantGate Budget Guard] Pre-flight token budget exceeded: estimated prompt (${estimatedPromptTokens} tokens) exceeds maxTokenBudget (${this.config.maxTokenBudget}).`
+      );
+    }
+
+    if (this.config.maxCostUSD !== undefined) {
+      const isLocalFree = provider === "ollama" || targetModel.toLowerCase().includes("ollama");
+      const providerCfg = this.findProviderConfig(provider, targetModel);
+      const price = resolveModelPrice(targetModel, {
+        provider: provider ?? providerCfg?.provider,
+        providerPricing: providerCfg?.pricing,
+        customPricing: this.config.customPricing,
+        adapter: this.cachedPricingAdapter,
+      });
+
+      if (!isLocalFree && !price) {
+        throw new ConfigurationError(
+          `[AvantGate Configuration Error] 'maxCostUSD' was set to $${this.config.maxCostUSD}, but no pricing was configured for model '${targetModel}'. Please define pricing in ProviderConfig, customPricing, or via PricingAdapter.`
+        );
+      }
+
+      const estimatedPromptCost = this.calculateCost(targetModel, estimatedPromptTokens, 0, 0, provider);
+      if (estimatedPromptCost > this.config.maxCostUSD) {
+        throw new BudgetExceededError(
+          `[AvantGate Budget Guard] Pre-flight cost budget exceeded: estimated prompt cost ($${estimatedPromptCost.toFixed(6)}) exceeds maxCostUSD ($${this.config.maxCostUSD}).`
+        );
+      }
+    }
+  }
+
+  private checkPostExecutionBudget(tokensTotal: number, costUSD: number): void {
+    if (this.config.maxTokenBudget !== undefined && tokensTotal > this.config.maxTokenBudget) {
+      throw new BudgetExceededError(
+        `[AvantGate Budget Guard] Execution total tokens (${tokensTotal}) exceeded maxTokenBudget (${this.config.maxTokenBudget}).`
+      );
+    }
+    if (this.config.maxCostUSD !== undefined && costUSD > this.config.maxCostUSD) {
+      throw new BudgetExceededError(
+        `[AvantGate Budget Guard] Execution cost ($${costUSD.toFixed(6)}) exceeded maxCostUSD ($${this.config.maxCostUSD}).`
+      );
+    }
+  }
+
   private buildMessages(systemPrompt: string | undefined, query: string): ChatMessage[] {
     const messages: ChatMessage[] = [];
     if (systemPrompt) {
@@ -59,7 +162,12 @@ export class AvantGateControlLayer {
     const promptTokens = rawUsage?.promptTokens ?? Math.ceil(query.length / 4);
     const completionTokens = rawUsage?.completionTokens ?? Math.ceil(text.length / 4);
     const totalTokens = rawUsage?.totalTokens ?? promptTokens + completionTokens;
-    return { promptTokens, completionTokens, totalTokens };
+    return {
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      promptCacheHitTokens: rawUsage?.promptCacheHitTokens,
+    };
   }
 
   private getProviderChain(): ProviderConfig[] {
@@ -73,7 +181,7 @@ export class AvantGateControlLayer {
   private executeSimulation(query: string, systemPrompt?: string): ExecutionResult {
     const promptTokens = Math.ceil(((systemPrompt?.length ?? 0) + query.length) / 4);
     const completionTokens = 50;
-    const cost = calculateCostUSD(this.config.primary.model, promptTokens, completionTokens);
+    const cost = this.calculateCost(this.config.primary.model, promptTokens, completionTokens);
 
     return {
       text: `[AvantGate In-Process Engine] Response simulation for model: ${this.config.primary.model}`,
@@ -144,10 +252,11 @@ export class AvantGateControlLayer {
   }
 
   private assembleResult(output: ProviderDispatchOutput): ExecutionResult {
-    const costUSD = calculateCostUSD(
+    const costUSD = this.calculateCost(
       output.modelUsed,
       output.usage.promptTokens,
-      output.usage.completionTokens
+      output.usage.completionTokens,
+      output.usage.promptCacheHitTokens ?? 0
     );
 
     return {
@@ -180,7 +289,7 @@ export class AvantGateControlLayer {
   }
 
   /**
-   * Exécute une requête avec garde d'entrée, masquage PII, et calcul des coûts.
+   * Exécute une requête avec garde d'entrée, masquage PII, garde pré-vol et calcul des coûts.
    */
   async execute(options: {
     userQuery: string;
@@ -191,10 +300,19 @@ export class AvantGateControlLayer {
     const sanitizedQuery = this.applySecurityGuards(options.userQuery);
     const messages = this.buildMessages(options.systemPrompt, sanitizedQuery);
 
+    const promptLength = (options.systemPrompt?.length ?? 0) + sanitizedQuery.length;
+    const estimatedPromptTokens = Math.ceil(promptLength / 4);
+    this.checkPreflightBudget(estimatedPromptTokens, this.config.primary.model, this.config.primary.provider);
+
     if (!options.providerOverride && this.getProviderChain().length === 0) {
-      const simResult = this.executeSimulation(sanitizedQuery, options.systemPrompt);
-      await this.notifyAuditSink(simResult);
-      return simResult;
+      if (this.config.mockSimulation) {
+        const simResult = this.executeSimulation(sanitizedQuery, options.systemPrompt);
+        await this.notifyAuditSink(simResult);
+        return simResult;
+      }
+      throw new ConfigurationError(
+        "[AvantGate Configuration Error] No active LLM provider configured. Provide a client implementing LLMProviderPort or configure credentials (apiKey / baseUrl)."
+      );
     }
 
     const output = options.providerOverride
@@ -202,6 +320,7 @@ export class AvantGateControlLayer {
       : await this.executeProviderPipeline(messages, sanitizedQuery, options.temperature);
 
     const result = this.assembleResult(output);
+    this.checkPostExecutionBudget(result.tokens.total, result.costUSD);
     await this.notifyAuditSink(result);
     return result;
   }
@@ -259,6 +378,10 @@ export class AvantGateControlLayer {
       return msg;
     });
 
+    const promptLength = processedMessages.reduce((sum, msg) => sum + msg.content.length, 0);
+    const estimatedPromptTokens = Math.ceil(promptLength / 4);
+    this.checkPreflightBudget(estimatedPromptTokens, modelToUse);
+
     let lastError: unknown;
     let accumulatedPromptTokens = 0;
     let accumulatedCompletionTokens = 0;
@@ -283,10 +406,16 @@ export class AvantGateControlLayer {
           attemptCompletionTokens = usage.completionTokens;
           modelUsed = modelToUse;
         } else if (this.getProviderChain().length === 0) {
-          const sim = this.executeSimulation(JSON.stringify(processedMessages));
-          responseText = sim.text;
-          attemptPromptTokens = sim.tokens.prompt;
-          attemptCompletionTokens = sim.tokens.completion;
+          if (this.config.mockSimulation) {
+            const sim = this.executeSimulation(JSON.stringify(processedMessages));
+            responseText = sim.text;
+            attemptPromptTokens = sim.tokens.prompt;
+            attemptCompletionTokens = sim.tokens.completion;
+          } else {
+            throw new ConfigurationError(
+              "[AvantGate Configuration Error] No active LLM provider configured. Provide a client implementing LLMProviderPort or configure credentials (apiKey / baseUrl)."
+            );
+          }
         } else {
           const output = await this.executeProviderPipeline(
             processedMessages,
@@ -316,7 +445,9 @@ export class AvantGateControlLayer {
         });
 
         const totalTokens = accumulatedPromptTokens + accumulatedCompletionTokens;
-        const costUSD = calculateCostUSD(modelUsed, accumulatedPromptTokens, accumulatedCompletionTokens);
+        const costUSD = this.calculateCost(modelUsed, accumulatedPromptTokens, accumulatedCompletionTokens);
+
+        this.checkPostExecutionBudget(totalTokens, costUSD);
 
         const result: StructuredExecutionResult<T> = {
           data: parsedData,

@@ -5,6 +5,7 @@ import {
   validateUserInput,
   calculateCostUSD,
   validateWithZod,
+  PricingRegistry,
   type LLMProviderPort,
 } from "../src/index";
 
@@ -18,6 +19,8 @@ function assert(condition: boolean, msg: string) {
 
 async function runTests() {
   console.log("🛡️ Testing avantgate Open Source Library...\n");
+  // Charger les prix de référence pour la suite de tests généraux
+  PricingRegistry.loadSeedPrices();
 
   // Test 1: PII Sanitizer
   const sanitized = sanitizePII("Contacter client@lextalk.fr ou au 06 12 34 56 78.");

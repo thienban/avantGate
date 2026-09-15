@@ -35,12 +35,40 @@ export interface LLMProviderPort {
   generateStructuredOutput?<T>(options: LLMStructuredOutputOptions<T>): Promise<T>;
 }
 
+export interface ModelPrice {
+  promptUSDPerMillion: number;
+  completionUSDPerMillion: number;
+  cacheHitUSDPerMillion?: number;
+}
+
+export interface PricingAdapter {
+  fetchPrice(model: string, provider?: string): Promise<ModelPrice | undefined> | ModelPrice | undefined;
+}
+
+export class ConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConfigurationError";
+  }
+}
+
+export class BudgetExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BudgetExceededError";
+  }
+}
+
+export { ConfigurationError as AvantGateConfigurationError };
+export { BudgetExceededError as AvantGateBudgetExceededError };
+
 export interface ProviderConfig {
   provider: "deepseek" | "mistral" | "openai" | "ollama" | "openrouter" | "custom";
   model: string;
   apiKey?: string;
   baseUrl?: string;
   client?: LLMProviderPort;
+  pricing?: ModelPrice;
 }
 
 export interface SecurityConfig {
@@ -97,6 +125,10 @@ export interface ControlLayerConfig {
   hourlyTokenLimit?: number;
   dailyTokenLimit?: number;
   features?: FeaturesConfig;
+  pricingAdapter?: PricingAdapter;
+  pricingCacheTtlMs?: number;
+  customPricing?: Record<string, ModelPrice>;
+  mockSimulation?: boolean;
 }
 
 export interface ExecutionResult {

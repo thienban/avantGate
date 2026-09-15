@@ -5,3 +5,4 @@ export * from "./input-guard";
 export * from "./response-validator";
 export * from "./control-layer";
 export * from "./prompts";
+export * from "./providers/http-client";
