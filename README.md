@@ -288,7 +288,7 @@ PricingRegistry.registerPrice("openrouter/deepseek/deepseek-chat", {
 });
 ```
 
-> 📖 **Deep Dive & Production DB Setup** : Consultez le guide complet [docs/pricing.md](docs/pricing.md) pour les schémas Prisma, Drizzle, invalidation de cache à chaud, et scripts de seed.
+> 📖 **Deep Dive & Production DB Setup**: See the comprehensive [docs/pricing.md](docs/pricing.md) guide for Prisma & Drizzle schemas, hot-cache invalidation, and production seed scripts.
 
 ---
 
@@ -530,9 +530,10 @@ AvantGate is built around clean **Ports and Adapters**:
 6. 🚀 **One-Line Launch-Safe Presets (`PRESETS.LAUNCH_SAFE`)**
    - Zero-config hardened setup with sensible defaults for security, budgets, and failovers.
 
-### 📦 Modular Ecosystem (Companion Packages)
+### 📦 Modular Ecosystem & Extensions
 
-- **`@avantgate/context`**: Standalone companion engine for RAG systems (temporal awareness, semantic re-ranking, memory decay). *The Context Engine handles what the model receives; AvantGate governs what the model returns.*
+- **`avantgate/agent`**: Zero-infra durable step orchestration, human-in-the-loop pauses, and dual-channel PII tool isolation.
+- **`avantgate/finance`**: Zero-overhead financial accounting normalizer across international jurisdictions (FR PCG, US GAAP, UK IFRS, Swiss CO).
 - **Launch Readiness Linter**: Standalone developer tool to audit codebases before launch for exposed keys, unbudgeted endpoints, and missing guards.
 
 ---

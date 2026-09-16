@@ -1,38 +1,38 @@
-# 💰 Guide Complet de Tarification & FinOps (`avantgate`)
+# 💰 Complete Pricing & FinOps Guide (`avantgate`)
 
-> **Maîtrisez et auditez vos coûts LLM en temps réel, sans chiffres inventés ni prix périmés.**
-
----
-
-## 🎯 Philosophie : "Strict & Truthful" (Zéro Code en Dur)
-
-Contrairement aux solutions passives qui codent en dur des snapshots de prix datant de plusieurs mois :
-- **AvantGate démarre avec un registre tarifaire vide**.
-- **Aucun prix approximatif n'est inventé** : si un modèle n'est pas configuré, son coût comptabilisé est de `$0.00` (les tokens consommés restant suivis avec une précision absolue).
-- **Sécurité financière pré-vol** : si vous activez un plafond de dépense (`maxCostUSD: 0.01`), AvantGate exige que le tarif du modèle soit déclaré afin d'intercepter les requêtes avant de payer.
+> **Monitor, audit, and cap your LLM spend in real time without stale prices or invented estimates.**
 
 ---
 
-## 🛠️ Les 4 Méthodes de Configuration
+## 🎯 Philosophy: "Strict & Truthful" (Zero Hardcoded Guesswork)
+
+Unlike passive proxies that hardcode pricing snapshots from months ago:
+- **AvantGate starts with an empty pricing registry by default**.
+- **No fake or approximate costs**: If a model has no configured price, its tracked cost is `$0.00` (while token consumption is still recorded with 100% precision).
+- **Pre-flight financial safety**: When enabling spend caps (`maxCostUSD: 0.01`), AvantGate strictly requires that model pricing is declared so it can block requests before any billable network call.
+
+---
+
+## 🛠️ The 4 Configuration Methods
 
 ```mermaid
 flowchart TD
-    Req[Requête LLM] --> P1{1. ProviderConfig.pricing ?}
-    P1 -- Oui --> UseP1[Tarif spécifique du provider]
-    P1 -- Non --> P2{2. ControlLayerConfig.customPricing ?}
-    P2 -- Oui --> UseP2[Tarif de l'instance customPricing]
-    P2 -- Non --> P3{3. PricingAdapter DB avec Cache RAM ?}
-    P3 -- Oui --> UseP3[Tarif de votre base de données]
-    P3 -- Non --> P4{4. PricingRegistry global ?}
-    P4 -- Oui --> UseP4[Tarif enregistré globalement]
-    P4 -- Non --> Zero[Coût = 0.00 / Alerte maxCostUSD]
+    Req[LLM Request] --> P1{1. ProviderConfig.pricing ?}
+    P1 -- Yes --> UseP1[Provider-specific price]
+    P1 -- No --> P2{2. ControlLayerConfig.customPricing ?}
+    P2 -- Yes --> UseP2[Instance customPricing price]
+    P2 -- No --> P3{3. Database PricingAdapter with RAM Cache?}
+    P3 -- Yes --> UseP3[Database price]
+    P3 -- No --> P4{4. Global PricingRegistry?}
+    P4 -- Yes --> UseP4[Globally registered price]
+    P4 -- No --> Zero[Cost = $0.00 / maxCostUSD Rejection]
 ```
 
 ---
 
-### Méthode 1 : Déclaration Directe dans le Provider (Le plus rapide)
+### Method 1: Direct Declaration in Provider (Fastest)
 
-Idéal pour tester un modèle, pour des scripts légers, ou pour appliquer une remise entreprise négociée :
+Ideal for quick prototyping, lightweight scripts, or applying negotiated enterprise discount tiers:
 
 ```typescript
 import { createAvantGate } from "avantgate";
@@ -42,28 +42,28 @@ const control = createAvantGate({
     provider: "deepseek",
     model: "deepseek-chat",
     apiKey: process.env.DEEPSEEK_API_KEY!,
-    // 💡 Déclaration directe par million de tokens
+    // 💡 Direct pricing per million tokens
     pricing: {
       promptUSDPerMillion: 0.14,
       completionUSDPerMillion: 0.28,
-      cacheHitUSDPerMillion: 0.014, // Optionnel : tarif réduit sur hit de cache KV
+      cacheHitUSDPerMillion: 0.014, // Optional: discounted KV cache hit rate
     },
   },
-  maxCostUSD: 0.005, // Bloque pré-vol si le coût d'entrée dépasse $0.005
+  maxCostUSD: 0.005, // Blocks pre-flight if minimum input cost exceeds $0.005
 });
 
 const result = await control.execute({
-  userQuery: "Générer un bilan synthétique...",
+  userQuery: "Generate executive summary...",
 });
 
-console.log(`Coût exact : $${result.costUSD.toFixed(6)}`);
+console.log(`Exact cost: $${result.costUSD.toFixed(6)}`);
 ```
 
 ---
 
-### Méthode 2 : Grille Tarifaire d'Instance (`customPricing`)
+### Method 2: Instance Pricing Grid (`customPricing`)
 
-Idéal lorsque votre application utilise plusieurs modèles et distributeurs :
+Ideal when your application routes queries across multiple models and distributor endpoints:
 
 ```typescript
 import { createAvantGate } from "avantgate";
@@ -73,11 +73,11 @@ const control = createAvantGate({
   fallback: { provider: "mistral", model: "mistral-small-latest", apiKey: process.env.MISTRAL_API_KEY! },
 
   customPricing: {
-    // Clé simple par nom de modèle
+    // Simple key by model name
     "deepseek-chat": { promptUSDPerMillion: 0.14, completionUSDPerMillion: 0.28 },
     "mistral-small-latest": { promptUSDPerMillion: 0.20, completionUSDPerMillion: 0.60 },
 
-    // Clé qualifiée par distributeur (ex: via OpenRouter ou Azure)
+    // Qualified key by distributor (e.g., via OpenRouter or Azure)
     "openrouter/anthropic/claude-3.5-sonnet": { promptUSDPerMillion: 3.00, completionUSDPerMillion: 15.00 },
     "azure/gpt-4o": { promptUSDPerMillion: 2.75, completionUSDPerMillion: 11.00 },
   },
@@ -86,21 +86,21 @@ const control = createAvantGate({
 
 ---
 
-### Méthode 3 : Connexion Base de Données (`PricingAdapter` avec Cache RAM)
+### Method 3: Database Connection (`PricingAdapter` with RAM Cache)
 
-C'est **l'architecture recommandée pour les applications SaaS en production (ex: LexTalk)**.  
-Vos prix sont stockés en base de données SQL (PostgreSQL, MySQL, SQLite) et administrables depuis votre back-office.
+This is **the recommended production architecture for multi-tenant SaaS applications (e.g. LexTalk)**.  
+Your model pricing is stored in a SQL database (PostgreSQL, MySQL, SQLite) and managed via your internal admin dashboard.
 
-#### A. Schéma Prisma Recommandé
+#### A. Recommended Prisma Schema
 
 ```prisma
 model ModelPricing {
   id                     String    @id @default(cuid())
   distributor            String    // "deepseek", "mistral", "openrouter", "openai", "azure"
   model                  String    // "deepseek-chat", "mistral-large-latest", "gpt-4o"
-  promptPriceUSDPerM     Decimal   @db.Decimal(10, 4) // ex: 0.1400
-  completionPriceUSDPerM Decimal   @db.Decimal(10, 4) // ex: 0.2800
-  cacheHitPriceUSDPerM   Decimal?  @db.Decimal(10, 4) // ex: 0.0140
+  promptPriceUSDPerM     Decimal   @db.Decimal(10, 4) // e.g. 0.1400
+  completionPriceUSDPerM Decimal   @db.Decimal(10, 4) // e.g. 0.2800
+  cacheHitPriceUSDPerM   Decimal?  @db.Decimal(10, 4) // e.g. 0.0140
   isActive               Boolean   @default(true)
   updatedAt              DateTime  @updatedAt
 
@@ -108,7 +108,7 @@ model ModelPricing {
 }
 ```
 
-#### B. Branchement dans AvantGate avec Cache Mémoire (0 ms Overhead)
+#### B. Wiring into AvantGate with In-Memory Caching (0 ms Overhead)
 
 ```typescript
 import { createAvantGate, type PricingAdapter } from "avantgate";
@@ -117,7 +117,7 @@ import { prisma } from "@/lib/prisma";
 const control = createAvantGate({
   primary: { provider: "deepseek", model: "deepseek-chat", apiKey: process.env.DEEPSEEK_API_KEY! },
 
-  // 💡 L'adaptateur interroge Prisma uniquement en cas de cache-miss
+  // 💡 The adapter queries Prisma only on cache misses
   pricingAdapter: {
     async fetchPrice(model, provider) {
       const row = await prisma.modelPricing.findFirst({
@@ -133,46 +133,46 @@ const control = createAvantGate({
     },
   },
 
-  // ⚡ Durée de validité du cache en mémoire (5 minutes par défaut)
+  // ⚡ In-memory cache TTL (5 minutes by default)
   pricingCacheTtlMs: 5 * 60 * 1000,
 });
 ```
 
-#### C. Invalidation du Cache lors d'une Modification en Back-Office
+#### C. Hot-Cache Invalidation on Admin Updates
 
-Si un administrateur met à jour un tarif dans votre interface web :
+When an administrator updates a price in your web back-office:
 
 ```typescript
 import { CachedPricingAdapter } from "avantgate";
 
-// Dans votre Server Action ou route API Next.js / Express :
+// In your Next.js Server Action or Express API route:
 export async function updateModelPrice(distributor: string, model: string, newPrompt: number, newCompletion: number) {
   await prisma.modelPricing.update({
     where: { distributor_model: { distributor, model } },
     data: { promptPriceUSDPerM: newPrompt, completionPriceUSDPerM: newCompletion },
   });
 
-  // 💡 Invalider immédiatement le cache mémoire sans redémarrer l'application
+  // 💡 Immediately invalidate the RAM cache without restarting the app
   cachedPricingAdapter.invalidate(model, distributor);
 }
 ```
 
 ---
 
-### Méthode 4 : Registre Global Découplé (`PricingRegistry`)
+### Method 4: Decoupled Global Registry (`PricingRegistry`)
 
-Vous pouvez également initialiser les tarifs une seule fois au bootstrap de votre application :
+You can also configure prices once at application bootstrap:
 
 ```typescript
 import { PricingRegistry } from "avantgate";
 
-// Enregistrer un modèle unique
+// Register an individual model price
 PricingRegistry.registerPrice("deepseek-chat", {
   promptUSDPerMillion: 0.14,
   completionUSDPerMillion: 0.28,
 });
 
-// Enregistrer les tarifs d'un distributeur entier
+// Register prices for an entire distributor catalog
 PricingRegistry.registerDistributorPrices("openrouter", {
   "deepseek/deepseek-chat": { promptUSDPerMillion: 0.14, completionUSDPerMillion: 0.28 },
   "anthropic/claude-3.5-sonnet": { promptUSDPerMillion: 3.00, completionUSDPerMillion: 15.00 },
@@ -181,15 +181,15 @@ PricingRegistry.registerDistributorPrices("openrouter", {
 
 ---
 
-## 📦 Jeu de Données Initial Indicatif (`SEED_MODEL_PRICES`)
+## 📦 Reference Seed Dataset (`SEED_MODEL_PRICES`)
 
-Si vous initialisez votre projet et cherchez un catalogue de référence pour peupler votre base de données, AvantGate exporte `SEED_MODEL_PRICES` :
+If you are initializing a new project and looking for a baseline catalog to seed your database, AvantGate exports `SEED_MODEL_PRICES`:
 
 ```typescript
 import { SEED_MODEL_PRICES, PricingRegistry } from "avantgate";
 import { prisma } from "@/lib/prisma";
 
-// Exemple de script de Seed Prisma (prisma/seed.ts)
+// Example Prisma seed script (prisma/seed.ts)
 async function seedPrices() {
   for (const [key, price] of Object.entries(SEED_MODEL_PRICES)) {
     const [distributor, ...modelParts] = key.includes("/") ? key.split("/") : ["direct", key];
@@ -211,9 +211,9 @@ async function seedPrices() {
 
 ---
 
-## 🛡️ Fonctionnement du Plafond Pré-Vol (`maxCostUSD`)
+## 🛡️ Pre-Flight Budget Guard Mechanics (`maxCostUSD`)
 
-Lorsque vous spécifiez `maxCostUSD` :
+When you specify `maxCostUSD`:
 
 ```typescript
 const control = createAvantGate({
@@ -223,11 +223,11 @@ const control = createAvantGate({
     apiKey: process.env.DEEPSEEK_API_KEY!,
     pricing: { promptUSDPerMillion: 0.14, completionUSDPerMillion: 0.28 },
   },
-  maxCostUSD: 0.00005, // Budget très serré
+  maxCostUSD: 0.00005, // Very strict budget limit
 });
 ```
 
-AvantGate effectue un double contrôle :
-1. **Contrôle Pré-Vol** : estime le coût d'entrée minimal attendu (`promptTokens * promptUSDPerMillion / 1_000_000`). Si ce coût d'entrée dépasse `maxCostUSD`, la requête est **rejetée instantanément avec une `BudgetExceededError` sans aucun appel réseau**.
-2. **Contrôle Post-Exécution** : après réception de la complétion, vérifie que le coût réel total respecte le plafond.
-3. **Exigence de Vérité** : si `maxCostUSD` est activé sur un modèle payant sans aucun tarif configuré, AvantGate lève une `ConfigurationError` explicite plutôt que de deviner un prix au hasard.
+AvantGate enforces a two-stage check:
+1. **Pre-Flight Validation**: Estimates the minimum expected input cost (`promptTokens * promptUSDPerMillion / 1_000_000`). If this initial input cost exceeds `maxCostUSD`, the request is **rejected instantly with a `BudgetExceededError` before making any network call**.
+2. **Post-Execution Validation**: After receiving the completion, validates that total actual cost respects the limit.
+3. **Truth Requirement**: If `maxCostUSD` is enabled on a paid model without any registered price, AvantGate throws an explicit `ConfigurationError` rather than guessing a random price.
