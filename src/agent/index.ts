@@ -7,6 +7,7 @@ export * from "./types";
 export * from "./errors";
 export * from "./guardrails";
 export * from "./isolated-tool";
+export * from "./dto";
 export * from "./factory";
 export * from "./registry";
 export * from "./strategy";

@@ -1,32 +1,33 @@
-# 🚀 AvantGate v1.1.1 — Notes de Version (Release Notes)
+# 🚀 AvantGate v1.1.1 — Release Notes
 
-> **Date de publication** : 15 Septembre 2026  
-> **Package NPM** : [`avantgate@1.1.1`](https://www.npmjs.com/package/avantgate)  
-> **Type de Release** : Correctifs Critiques (Bugfix), Sécurité Budgétaire & Améliorations Architecturales
-
----
-
-## 📌 Résumé Exécutif
-
-La version **v1.1.1** d'AvantGate apporte des correctifs fondamentaux répondant directement aux retours d'onboarding et d'audit technique d'utilisateurs externes :
-1. **Délivrance de la promesse n°1 ("Pre-Flight In-Process Gating")** : les limites `maxTokenBudget` et `maxCostUSD` bloquent désormais réellement les requêtes en amont, avant toute dépense API.
-2. **Fin de la simulation factice silencieuse** : suppression du repli automatique sur `executeSimulation()`. Si aucun fournisseur n'est configuré, AvantGate lève une exception explicite `ConfigurationError`.
-3. **Dispatch HTTP Natif ($0 Dépendance)** : un client `fetch` intégré permet d'exécuter directement les appels pour DeepSeek, Mistral, OpenAI, Ollama et OpenRouter sans installer de SDK tiers.
-4. **Moteur Tarifaire "Strict & Truthful" & Adaptateur DB** : suppression des prix codés en dur dans le moteur au profit d'un registre découplé et d'un `PricingAdapter` connectable à votre base de données (ex: Prisma, PostgreSQL) avec cache mémoire à 0 ms de latence.
-5. **Rectification de l'Installation** : clarification définitive du nom de publication `avantgate` (résolution du 404 sur `@avantgate/core`).
+> **Release Date**: September 15, 2026  
+> **NPM Package**: [`avantgate@1.1.1`](https://www.npmjs.com/package/avantgate)  
+> **Release Type**: Critical Bugfixes, Budget Security & Architectural Improvements
 
 ---
 
-## 🔍 Détail des Corrections & Nouvelles Fonctionnalités
+## 📌 Executive Summary
 
-### 1. 🛡️ Garde Pré-Vol Active (`maxTokenBudget` & `maxCostUSD`)
-- **Problème résolu** : Précédemment, `maxTokenBudget` et `maxCostUSD` n'étaient définis que dans les types TypeScript (`.d.ts`) mais n'étaient jamais évalués au runtime. Une requête avec `maxTokenBudget: 1` retournait un résultat sans jamais bloquer.
-- **Comportement v1.1.1** :
-  - **Évaluation pré-vol** : Avant d'envoyer la moindre requête au fournisseur, AvantGate estime la taille en jetons du prompt (`Math.ceil(chars / 4)`).
-  - **Blocage Token** : Si `promptTokens > maxTokenBudget`, une exception `BudgetExceededError` est levée instantanément.
-  - **Blocage Coût** : Si le coût d'entrée estimé dépasse `maxCostUSD`, la requête est bloquée net.
-  - **Plafonnement de complétion** : La complétion est bornée pour ne pas déborder du solde disponible.
-  - **Contrôle post-exécution** : Vérification stricte des tokens réels et du coût total retournés par le provider.
+The **v1.1.1** release of AvantGate brings fundamental fixes addressing direct feedback from developer onboarding and external technical audits:
+
+1. **Delivering on Core Promise ("Pre-Flight In-Process Gating")**: `maxTokenBudget` and `maxCostUSD` limits now actively block requests before any external API expenditure occurs.
+2. **End of Silent Mock Simulation**: Complete removal of automatic fallbacks to `executeSimulation()`. If no provider is configured, AvantGate throws an explicit `ConfigurationError`.
+3. **Native HTTP Dispatch ($0 Dependencies)**: An integrated `fetch` client executes direct calls for DeepSeek, Mistral, OpenAI, Ollama, and OpenRouter without requiring third-party SDKs.
+4. **"Strict & Truthful" Pricing Engine & DB Adapter**: Removal of hardcoded pricing dictionaries in favor of a decoupled registry and a `PricingAdapter` connectable to your database (e.g. Prisma, PostgreSQL) with zero-latency in-memory caching.
+5. **Installation Name Clarification**: Definitive alignment on the official npm package name `avantgate` (resolving 404 errors from `@avantgate/core`).
+
+---
+
+## 🔍 Detailed Fixes & New Features
+
+### 1. 🛡️ Active Pre-Flight Guarding (`maxTokenBudget` & `maxCostUSD`)
+- **Problem Addressed**: Previously, `maxTokenBudget` and `maxCostUSD` were defined only in TypeScript types (`.d.ts`) but were never evaluated at runtime. A request configured with `maxTokenBudget: 1` returned a result without ever blocking.
+- **v1.1.1 Behavior**:
+  - **Pre-flight evaluation**: Before sending any request to the provider, AvantGate estimates the prompt token count (`Math.ceil(chars / 4)`).
+  - **Token blocking**: If `promptTokens > maxTokenBudget`, a `BudgetExceededError` exception is thrown immediately.
+  - **Cost blocking**: If the estimated input cost exceeds `maxCostUSD`, the request is blocked on the spot.
+  - **Completion capping**: Completion tokens are bounded so they do not exceed remaining budget balance.
+  - **Post-execution verification**: Strict checks against actual tokens and total cost returned by the provider.
 
 ```typescript
 import { createAvantGate, BudgetExceededError } from "avantgate";
@@ -38,44 +39,44 @@ const control = createAvantGate({
 });
 
 try {
-  await control.execute({ userQuery: "Analyse exhaustive de 50 pages de contrat..." });
+  await control.execute({ userQuery: "Exhaustive legal analysis of 50-page contract..." });
 } catch (error) {
   if (error instanceof BudgetExceededError) {
-    console.warn("Bloqué en pré-vol par AvantGate :", error.message);
+    console.warn("Blocked pre-flight by AvantGate:", error.message);
   }
 }
 ```
 
 ---
 
-### 2. 🚫 Suppression de la Simulation Silencieuse
-- **Problème résolu** : En l'absence de client instancié, `execute()` basculait silencieusement sur `this.executeSimulation()`, produisant une réponse factice avec un décompte de tokens et un coût calculé, même avec une clé API bidon.
-- **Comportement v1.1.1** :
-  - Le repli silencieux vers `executeSimulation()` est **définitivement supprimé** du flux de production.
-  - Si aucun fournisseur n'est opérationnel, AvantGate lève une `ConfigurationError` explicite :
+### 2. 🚫 Removal of Silent Simulation
+- **Problem Addressed**: When no client was instantiated, `execute()` silently fell back to `this.executeSimulation()`, producing a mock response with calculated token and cost counts, even with invalid or missing API credentials.
+- **v1.1.1 Behavior**:
+  - Silent fallback to `executeSimulation()` is **permanently eliminated** from the production pipeline.
+  - If no provider is functional, AvantGate throws an explicit `ConfigurationError`:
     ```
     [AvantGate Configuration Error] No active LLM provider configured. Provide a client implementing LLMProviderPort or configure credentials (apiKey / baseUrl).
     ```
-  - La simulation factice devient un outil de test réservé aux environnements de CI/bancs d'essai, activable uniquement via l'option explicite `mockSimulation: true`.
+  - Mock simulation is now strictly an opt-in testing tool for CI test suites, enabled only when setting `mockSimulation: true`.
 
 ---
 
-### 3. 🌐 Client HTTP Natif Intégré ($0 Dépendance, Node 18+ `fetch`)
-- **Problème résolu** : Le quickstart du README suggérait de passer `apiKey: process.env.DEEPSEEK_API_KEY!` sans expliquer comment instancier le client.
-- **Comportement v1.1.1** :
-  - Implémentation de `HttpProviderClient` compatible avec le protocole `/chat/completions`.
-  - Prise en charge native de **DeepSeek**, **Mistral**, **OpenAI**, **Ollama** et **OpenRouter**.
-  - Si un utilisateur fournit `apiKey` (ou `baseUrl` pour Ollama), AvantGate instancie automatiquement le client HTTP natif.
-  - Les erreurs du fournisseur (HTTP 401 Unauthorized sur clé invalide, HTTP 429 Rate Limit, HTTP 500) sont fidèlement captées et déclenchent la bascule automatique sur fallback si configuré.
+### 3. 🌐 Native HTTP Client ($0 Dependencies, Node 18+ `fetch`)
+- **Problem Addressed**: The README quickstart suggested passing `apiKey: process.env.DEEPSEEK_API_KEY!` without explaining how to instantiate the client.
+- **v1.1.1 Behavior**:
+  - Implementation of `HttpProviderClient` compatible with the standard `/chat/completions` protocol.
+  - Native out-of-the-box support for **DeepSeek**, **Mistral**, **OpenAI**, **Ollama**, and **OpenRouter**.
+  - If a user provides `apiKey` (or `baseUrl` for Ollama), AvantGate automatically instantiates the native HTTP client.
+  - Provider errors (HTTP 401 Unauthorized, HTTP 429 Rate Limit, HTTP 500) are accurately intercepted and trigger automatic failovers if configured.
 
 ---
 
-### 4. 💰 Moteur Tarifaire "Strict & Truthful" & Adaptateur DB (`PricingAdapter`)
-- **Problème résolu** : Les prix étaient codés en dur dans un dictionnaire `BASELINE_PRICES`. Ces prix devenaient rapidement obsolètes et ne prenaient pas en compte les marges des distributeurs (ex: OpenRouter) ou les remises négociées en entreprise.
-- **Comportement v1.1.1** :
-  - **Suppression du dictionnaire codé en dur** : `PricingRegistry` démarre 100% vide. Aucun prix approximatif ou périmé n'est inventé (coût = `$0.00` si non configuré).
-  - **Exigence de vérité avec `maxCostUSD`** : Si un plafond de coût est défini, AvantGate exige que le modèle soit tarifé pour éviter tout calcul erroné.
-  - **Interface `PricingAdapter` pour base de données (ex: Prisma LexTalk)** :
+### 4. 💰 "Strict & Truthful" Pricing Engine & DB Adapter (`PricingAdapter`)
+- **Problem Addressed**: Prices were hardcoded into a `BASELINE_PRICES` dictionary. These prices became quickly outdated and failed to reflect distributor markups (e.g. OpenRouter) or negotiated corporate discounts.
+- **v1.1.1 Behavior**:
+  - **Removal of hardcoded dictionary**: `PricingRegistry` starts 100% empty. No estimated or stale pricing is assumed (cost defaults to `$0.00` if unconfigured).
+  - **Requirement of truth with `maxCostUSD`**: When a cost cap is defined, AvantGate requires the model to have registered pricing to prevent erroneous budget estimates.
+  - **`PricingAdapter` interface for external databases (e.g. Prisma)**:
     ```typescript
     const control = createAvantGate({
       primary: { provider: "deepseek", model: "deepseek-chat", apiKey: process.env.DEEPSEEK_API_KEY! },
@@ -89,39 +90,39 @@ try {
           };
         },
       },
-      pricingCacheTtlMs: 5 * 60 * 1000, // Cache mémoire 5 min (0 ms de latence, 0 requête DB par prompt)
+      pricingCacheTtlMs: 5 * 60 * 1000, // In-memory cache 5 min (0 ms latency, 0 DB queries per prompt)
     });
     ```
-  - **Support des clés hiérarchiques** : `distributeur/modele` (ex: `openrouter/deepseek/deepseek-chat`, `azure/gpt-4o`).
-  - **Jeu de données initial exporté** : `SEED_MODEL_PRICES` est exporté pour alimenter vos scripts de seed de base de données.
+  - **Hierarchical keys support**: `distributor/model` (e.g. `openrouter/deepseek/deepseek-chat`, `azure/gpt-4o`).
+  - **Exported initial dataset**: `SEED_MODEL_PRICES` is exported to bootstrap your database seed scripts.
 
 ---
 
 ### 5. 📦 Package & Installation
-- **Problème résolu** : Certaines annonces et références mentionnaient `@avantgate/core` qui renvoyait une erreur HTTP 404 sur npmjs.com.
-- **Comportement v1.1.1** :
-  - La documentation et le `package-lock.json` sont alignés sur le nom officiel publié sur npm :
+- **Problem Addressed**: Legacy references mentioned `@avantgate/core` which returned HTTP 404 on npmjs.com.
+- **v1.1.1 Behavior**:
+  - Documentation and `package.json` are aligned on the single official npm publication:
     ```bash
     npm install avantgate zod
     ```
 
 ---
 
-## 🧪 Matrice de Tests & Vérification
+## 🧪 Test Matrix & Verification
 
-| Suite de Tests | Statut | Couverture |
+| Test Suite | Status | Coverage |
 |---|:---:|---|
-| `tests/preflight-budget.test.ts` | ✅ **PASS** | Rejet pré-vol `maxTokenBudget: 1`, rejet `maxCostUSD`, levée de `ConfigurationError`, test du cache TTL `PricingAdapter`, et mock HTTP 401. |
-| `tests/avantgate.test.ts` | ✅ **PASS** | Contrôleur principal, bascule automatique multi-modèles (failover 429), masqueur PII, garde anti-injection, Zod repair. |
-| `tests/financial-normalizer.test.ts` | ✅ **PASS** | Normalisation comptable française, parenthèses négatives, k€ / M€. |
-| `tests/prompt-builder.test.ts` | ✅ **PASS** | Assemblage de prompts structurés, slots de tokens, templates versionnés. |
-| `tests/pii-extended.test.ts` | ✅ **PASS** | Détection et masquage NIR/Sécu, SPI fiscal, IBAN, BIC. |
-| `tests/agent/*` (9 fichiers) | ✅ **PASS** | StepRunner durable, HITL, isolation Dual-Channel, anti-cycles, PlatformStorageAdapter, HttpTelemetryExporter. |
-| `npm run build` | ✅ **PASS** | Génération des bundles CJS, ESM et fichiers de types `.d.ts`. |
+| `tests/preflight-budget.test.ts` | ✅ **PASS** | Pre-flight rejection with `maxTokenBudget: 1`, `maxCostUSD` rejection, `ConfigurationError`, `PricingAdapter` TTL cache, and mock HTTP 401. |
+| `tests/avantgate.test.ts` | ✅ **PASS** | Main control plane, automatic multi-model failover (HTTP 429), PII masking, prompt injection guard, Zod auto-repair. |
+| `tests/financial-normalizer.test.ts` | ✅ **PASS** | Accounting normalizer, negative parentheses, k€ / M€ magnitudes. |
+| `tests/prompt-builder.test.ts` | ✅ **PASS** | Structured prompt assembly, token slots, versioned templates. |
+| `tests/pii-extended.test.ts` | ✅ **PASS** | French SSN/NIR, tax number (SPI), IBAN, BIC detection and masking. |
+| `tests/agent/*` (9 files) | ✅ **PASS** | Durable StepRunner, HITL, Dual-Channel isolation, anti-cycle guard, PlatformStorageAdapter, HttpTelemetryExporter. |
+| `npm run build` | ✅ **PASS** | CJS, ESM bundle generation, and TypeScript `.d.ts` declarations. |
 
 ---
 
-## 📚 Documentation Associée
-- [Guide Complet de Tarification & DB Setup](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/docs/pricing.md)
-- [Module Agent Durable & Observabilité](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/docs/agent.md)
-- [Ticket de Développement FEAT-009](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-009-preflight-budget-guard-distributor-pricing-and-native-dispatch.md)
+## 📚 Related Documentation
+- [Comprehensive Pricing Guide & DB Setup](pricing.md)
+- [Durable Agent Module & Observability](agent.md)
+- [Development Ticket FEAT-009](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/tickets/FEAT-009-preflight-budget-guard-distributor-pricing-and-native-dispatch.md)

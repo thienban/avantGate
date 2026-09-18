@@ -1,3 +1,4 @@
+import { DtoValidationError } from "./errors";
 import { auditToolResult } from "./guardrails";
 import type {
   IsolatedToolConfig,
@@ -5,9 +6,9 @@ import type {
   VercelAiCoreTool,
 } from "./types";
 
-async function dispatchClientData<TResult>(
-  rawResult: TResult,
-  callback?: (data: TResult) => void | Promise<void>
+async function dispatchClientData(
+  rawResult: unknown,
+  callback?: (data: any) => void | Promise<void>
 ): Promise<void> {
   if (!callback) {
     return;
@@ -15,15 +16,36 @@ async function dispatchClientData<TResult>(
   await callback(rawResult);
 }
 
-function produceLlmPayload<TArgs, TResult>(
+async function produceLlmPayload<TArgs, TResult>(
   rawResult: TResult,
   args: TArgs,
-  transformer?: (result: TResult, args: TArgs) => unknown
-): unknown {
+  context?: ToolExecutionContext,
+  transformer?: (result: TResult, args: TArgs, context?: ToolExecutionContext) => unknown
+): Promise<unknown> {
   if (transformer) {
-    return transformer(rawResult, args);
+    return await transformer(rawResult, args, context);
   }
   return rawResult;
+}
+
+function validateLlmDto(
+  payload: unknown,
+  schema: any,
+  toolIdentifier: string
+): unknown {
+  const parseResult = schema.safeParse(payload);
+  if (!parseResult.success) {
+    const issues = parseResult.error.issues ?? [];
+    const errorMessages = issues
+      .map((issue: any) => `${issue.path.join(".") || "root"}: ${issue.message}`)
+      .join(", ");
+    throw new DtoValidationError(
+      toolIdentifier,
+      errorMessages,
+      issues
+    );
+  }
+  return parseResult.data;
 }
 
 function protectLlmPayload(
@@ -42,16 +64,43 @@ function protectLlmPayload(
   return { sanitized: sanitizedData, count: maskedCount };
 }
 
+async function processLlmPayload<TArgs, TResult>(
+  rawResult: TResult,
+  args: TArgs,
+  context: ToolExecutionContext,
+  config: IsolatedToolConfig<TArgs, TResult, any, any>,
+  toolIdentifier: string
+): Promise<{ sanitized: unknown; count: number }> {
+  let payload = await produceLlmPayload(rawResult, args, context, config.llmDto);
+
+  if (config.llmDtoSchema) {
+    payload = validateLlmDto(payload, config.llmDtoSchema, toolIdentifier);
+  }
+
+  return protectLlmPayload(
+    payload,
+    toolIdentifier,
+    config.sanitizePii !== false,
+    config.throwOnPii === true
+  );
+}
+
 /**
  * Creates an isolated tool compatible with Vercel AI SDK (ai) tool contract.
- * Features dual-channel separation (client data vs minimal LLM summary),
- * stable ID, aliasing, caching and automatic in-flight PII redaction.
+ * Features dual-channel separation (client data vs minimal LLM DTO),
+ * stable ID, aliasing, caching, Zod DTO contract validation, and automatic in-flight PII redaction.
  */
-export function createIsolatedTool<TArgs = any, TResult = any>(
-  config: IsolatedToolConfig<TArgs, TResult>
+export function createIsolatedTool<
+  TArgs = any,
+  TResult = any,
+  TLLMDto = unknown,
+  TClientDto = TResult
+>(
+  config: IsolatedToolConfig<TArgs, TResult, TLLMDto, TClientDto>
 ): VercelAiCoreTool<TArgs, TResult> {
   const toolId = config.id || config.name;
   const toolAlias = config.alias;
+  const clientCallback = config.clientDto;
 
   const tool: VercelAiCoreTool<TArgs, TResult> = {
     description: config.description,
@@ -70,19 +119,14 @@ export function createIsolatedTool<TArgs = any, TResult = any>(
 
       const rawResult = await config.execute(args, updatedContext);
 
-      await dispatchClientData(rawResult, config.toClientData);
+      await dispatchClientData(rawResult, clientCallback);
 
-      const llmPayload = produceLlmPayload(
+      const protection = await processLlmPayload(
         rawResult,
         args,
-        config.toLLMSummary
-      );
-
-      const protection = protectLlmPayload(
-        llmPayload,
-        toolAlias || config.name,
-        config.sanitizePii !== false,
-        config.throwOnPii === true
+        updatedContext,
+        config,
+        toolAlias || config.name
       );
 
       tool._lastPiiFilteredCount = protection.count;

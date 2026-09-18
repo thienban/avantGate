@@ -125,7 +125,7 @@ async function testToolExecutionTelemetryAndPiiCapture(): Promise<void> {
         role: "Director",
       };
     },
-    toLLMSummary(res) {
+    llmDto(res) {
       return { profileFound: true, contact: res.email };
     },
     sanitizePii: true,

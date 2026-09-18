@@ -160,25 +160,32 @@ export interface ToolContext {
 }
 
 /**
- * Transformer converting raw tool result into a safe, minimal LLM message.
+ * Projection function converting raw tool result, input arguments and execution context
+ * into a safe, minimal LLM DTO.
  */
-export type LLMSummaryTransformer<TArgs = unknown, TResult = unknown> = (
+export type LLMDtoMapper<TArgs = any, TResult = any, TLLMDto = unknown> = (
   result: TResult,
-  args: TArgs
-) => unknown;
+  args: TArgs,
+  context?: ToolExecutionContext
+) => TLLMDto | Promise<TLLMDto>;
 
 /**
  * Out-of-band callback streaming raw or rich tool data directly to the client UI.
  */
-export type ClientDataCallback<TResult = unknown> = (
+export type ClientDtoCallback<TResult = unknown> = (
   data: TResult
 ) => void | Promise<void>;
 
 /**
- * Configuration for creating an isolated tool with PII protection, Dual-Channel,
+ * Configuration for creating an isolated tool with PII protection, Dual-Channel DTO,
  * stable ID, aliasing and caching.
  */
-export interface IsolatedToolConfig<TArgs = any, TResult = any> {
+export interface IsolatedToolConfig<
+  TArgs = any,
+  TResult = any,
+  TLLMDto = unknown,
+  TClientDto = TResult
+> {
   id?: string;
   name: string;
   alias?: string;
@@ -186,8 +193,9 @@ export interface IsolatedToolConfig<TArgs = any, TResult = any> {
   parameters: z.ZodType<TArgs> | unknown;
   cacheTTL?: number;
   execute: (args: TArgs, context?: ToolExecutionContext) => Promise<TResult>;
-  toLLMSummary?: LLMSummaryTransformer<TArgs, TResult>;
-  toClientData?: ClientDataCallback<TResult>;
+  llmDto?: LLMDtoMapper<TArgs, TResult, TLLMDto>;
+  clientDto?: ClientDtoCallback<TClientDto>;
+  llmDtoSchema?: z.ZodType<TLLMDto>;
   sanitizePii?: boolean;
   throwOnPii?: boolean;
 }

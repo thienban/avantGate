@@ -99,3 +99,15 @@ export class ToolNotFoundError extends Error {
   }
 }
 
+export class DtoValidationError extends Error {
+  public readonly toolName: string;
+  public readonly issues: unknown[];
+
+  constructor(toolName: string, message: string, issues: unknown[] = []) {
+    super(`LLM DTO validation failed for tool "${toolName}": ${message}`);
+    this.name = "DtoValidationError";
+    this.toolName = toolName;
+    this.issues = issues;
+  }
+}
+

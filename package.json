@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Zero-infrastructure, in-process LLM control plane & SaaS observability bridge: real-time cost control, token budgets, PII redaction, prompt guardrails, multi-model failover, durable agent workflow harness, and HTTP telemetry without hosting heavy servers.",
   "author": "Antigravity & LexTalk Team",
   "license": "MIT",
@@ -64,7 +64,7 @@
     "test:finance": "tsx tests/financial-normalizer.test.ts",
     "test:prompts": "tsx tests/prompt-builder.test.ts",
     "test:pii": "tsx tests/pii-extended.test.ts",
-    "test:agent": "tsx tests/agent/step-runner.test.ts && tsx tests/agent/isolated-tool.test.ts && tsx tests/agent/tool-patterns.test.ts && tsx tests/agent/storage-adapters.test.ts && tsx tests/agent/tool-aliasing.test.ts && tsx tests/agent/tool-chaining.test.ts && tsx tests/agent/tool-storage.test.ts && tsx tests/agent/telemetry-exporter.test.ts && tsx tests/agent/platform-adapter.test.ts",
+    "test:agent": "tsx tests/agent/step-runner.test.ts && tsx tests/agent/isolated-tool.test.ts && tsx tests/agent/dto-pattern.test.ts && tsx tests/agent/tool-patterns.test.ts && tsx tests/agent/storage-adapters.test.ts && tsx tests/agent/tool-aliasing.test.ts && tsx tests/agent/tool-chaining.test.ts && tsx tests/agent/tool-storage.test.ts && tsx tests/agent/telemetry-exporter.test.ts && tsx tests/agent/platform-adapter.test.ts",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },

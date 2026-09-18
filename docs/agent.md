@@ -29,6 +29,8 @@ Subpath import:
 ```typescript
 import {
   createIsolatedTool,
+  dto,
+  DtoValidationError,
   createStepRunner,
   createCustomStorageAdapter,
   KeyValueStorageAdapter,
@@ -45,21 +47,73 @@ import {
 
 ---
 
-## 🛡️ 1. Tool Data Isolation (Dual-Channel PII Shield)
+## 🛡️ 1. Tool Data Isolation (Dual-Channel DTO & PII Shield)
 
-Wrap your tools with `createIsolatedTool` to separate client-side rich data from LLM context:
+Wrap your tools with `createIsolatedTool` to separate client-side rich data from LLM context using the **DTO Pattern**:
+
+- **Client DTO (`clientDto`)**: Streams rich, unredacted data out-of-band directly to UI consumers (React components, Canvas, WebSocket).
+- **LLM DTO (`llmDto`)**: Emits minimal, cognitive-optimized projections to the model, reducing token costs and preventing PII leaks.
+- **DTO Validation (`llmDtoSchema`)**: Enforces strict Zod schema compliance on the generated LLM DTO at runtime.
+- **Declarative Helpers (`dto.*`)**: Ready-to-use boilerplate reducers for booleans, counts, and whitelisted fields.
+
+### A. Declarative Helpers (`dto`)
 
 ```typescript
 import { z } from "zod";
-import { createIsolatedTool } from "avantgate/agent";
+import { createIsolatedTool, dto } from "avantgate/agent";
 
+// 1. Mutation tools (auto-generates { success: boolean })
+export const createTaskTool = createIsolatedTool({
+  name: "create_task",
+  description: "Create a task in CRM",
+  parameters: z.object({ title: z.string() }),
+  async execute(args) {
+    return await db.tasks.create({ data: { title: args.title } });
+  },
+  llmDto: dto.boolean(),
+});
+
+// 2. Chaining with opaque ID ({ success: boolean, taskId: string })
+export const createTaskWithIdTool = createIsolatedTool({
+  name: "create_task_with_id",
+  description: "Create a task and return its ID",
+  parameters: z.object({ title: z.string() }),
+  async execute(args) {
+    return await db.tasks.create({ data: { title: args.title } });
+  },
+  llmDto: dto.booleanWithId("taskId"),
+});
+
+// 3. Counting items ({ success: true, count: number }) without leaking array elements
+export const countProspectsTool = createIsolatedTool({
+  name: "count_prospects",
+  description: "Count total prospects",
+  parameters: z.object({ filter: z.string() }),
+  async execute(args) {
+    return { items: await db.prospects.findMany() };
+  },
+  llmDto: dto.count("items"),
+});
+
+// 4. Field whitelist picking
+export const getProspectSummaryTool = createIsolatedTool({
+  name: "get_prospect_summary",
+  description: "Get prospect summary",
+  parameters: z.object({ id: z.string() }),
+  async execute(args) {
+    return await db.prospects.find(args.id);
+  },
+  llmDto: dto.pick(["id", "stage", "annualRevenue"]),
+});
+```
+
+### B. Custom Functional DTO & Dual-Channel
+
+```typescript
 export const searchClientsTool = createIsolatedTool({
   name: "search_clients",
   description: "Search corporate client database",
-  parameters: z.object({
-    industry: z.string(),
-  }),
-  // 1. Raw execution logic
+  parameters: z.object({ industry: z.string() }),
   async execute(args) {
     return {
       industry: args.industry,
@@ -68,17 +122,19 @@ export const searchClientsTool = createIsolatedTool({
       ],
     };
   },
-  // 2. Out-of-band channel (Client UI gets full, unredacted data)
-  toClientData(data) {
+  // 1. Out-of-band channel (Client UI gets full, unredacted data)
+  clientDto(data) {
     uiSocket.emit("client_data", data);
   },
-  // 3. LLM channel (Model gets safe minimal summary with auto-PII redaction)
-  toLLMSummary(data) {
-    return {
-      count: data.clients.length,
-      note: "Results dispatched to user interface.",
-    };
-  },
+  // 2. LLM channel with custom projection & schema contract validation
+  llmDtoSchema: z.object({
+    count: z.number(),
+    note: z.string(),
+  }),
+  llmDto: (data, args, context) => ({
+    count: data.clients.length,
+    note: `Found ${data.clients.length} clients in ${args.industry}. Sent to UI.`,
+  }),
   sanitizePii: true, // Auto-redacts emails, phones, French NIR/SPI, IBAN/BIC
 });
 ```

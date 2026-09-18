@@ -33,10 +33,10 @@ async function runIsolatedToolTests() {
         ],
       };
     },
-    toClientData(data) {
+    clientDto(data) {
       interceptedClientData = data;
     },
-    toLLMSummary(data) {
+    llmDto(data) {
       return {
         found: data.count,
         summary: `Found ${data.count} prospects matching criteria. Details sent directly to user UI.`,
