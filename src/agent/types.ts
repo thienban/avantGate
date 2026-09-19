@@ -144,6 +144,7 @@ export interface ToolExecutionContext {
   storage?: StepStorageAdapter;
   tokens?: TokenUsage;
   costUsd?: number;
+  onInvalidationTags?: (tags: string[]) => void | Promise<void>;
   [key: string]: unknown;
 }
 
@@ -154,6 +155,8 @@ export interface ToolContext {
   userId?: string;
   tenantId?: string;
   role?: string;
+  roles?: string[];
+  permissions?: string[];
   phase?: string;
   metadata?: Record<string, unknown>;
   [key: string]: unknown;
@@ -177,8 +180,23 @@ export type ClientDtoCallback<TResult = unknown> = (
 ) => void | Promise<void>;
 
 /**
+ * Universal resource invalidation tags generator (string[] or function).
+ */
+export type InvalidationTagsResolver<TArgs = any, TResult = any> =
+  | string[]
+  | ((args: TArgs, result?: TResult) => string[] | Promise<string[]>);
+
+/**
+ * Guardrail hook for data access control (anti-IDOR) executed prior to tool execution.
+ */
+export type DataAccessGuard<TArgs = any> = (
+  args: TArgs,
+  context?: ToolExecutionContext
+) => boolean | Promise<boolean>;
+
+/**
  * Configuration for creating an isolated tool with PII protection, Dual-Channel DTO,
- * stable ID, aliasing and caching.
+ * access governance, stable ID, aliasing and caching.
  */
 export interface IsolatedToolConfig<
   TArgs = any,
@@ -190,6 +208,13 @@ export interface IsolatedToolConfig<
   name: string;
   alias?: string;
   description: string;
+  domain?: string;
+  resource?: string;
+  roles?: string[];
+  permissions?: string[];
+  requireApproval?: boolean;
+  dataAccessGuard?: DataAccessGuard<TArgs>;
+  invalidationTags?: InvalidationTagsResolver<TArgs, TResult>;
   parameters: z.ZodType<TArgs> | unknown;
   cacheTTL?: number;
   execute: (args: TArgs, context?: ToolExecutionContext) => Promise<TResult>;
@@ -215,7 +240,13 @@ export interface VercelAiCoreTool<TArgs = any, TResult = any> {
   readonly _toolAlias?: string;
   readonly _isIsolated: boolean;
   readonly _cacheTTL?: number;
+  readonly _domain?: string;
+  readonly _resource?: string;
+  readonly _roles?: readonly string[];
+  readonly _permissions?: readonly string[];
+  readonly _requireApproval?: boolean;
   _lastPiiFilteredCount?: number;
+  _lastInvalidationTags?: string[];
 }
 
 /**
@@ -226,10 +257,32 @@ export interface RegisteredTool<TArgs = any, TResult = any> {
   name: string;
   alias?: string;
   description: string;
+  domain?: string;
+  resource?: string;
+  roles?: string[];
+  permissions?: string[];
   phases?: string[];
   requiredRoles?: string[];
   tags?: string[];
+  requireApproval?: boolean;
   tool: VercelAiCoreTool<TArgs, TResult>;
+}
+
+/**
+ * Pure technical descriptor exportable to client applications without UI coupling.
+ */
+export interface ToolDescriptor {
+  id: string;
+  name: string;
+  alias?: string;
+  description: string;
+  domain?: string;
+  resource?: string;
+  roles?: string[];
+  permissions?: string[];
+  requireApproval?: boolean;
+  cacheTTL?: number;
+  tags?: string[];
 }
 
 /**

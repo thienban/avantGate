@@ -45,13 +45,20 @@ export class StepExecutionError extends Error {
 export class ToolAccessDeniedError extends Error {
   public readonly toolName: string;
   public readonly requiredRole?: string;
+  public readonly reason?: string;
 
-  constructor(toolName: string, requiredRole?: string) {
-    const roleMsg = requiredRole ? ` (requires role "${requiredRole}")` : "";
-    super(`Access denied for tool "${toolName}"${roleMsg}.`);
+  constructor(toolName: string, reasonOrRole?: string) {
+    const isRole = Boolean(reasonOrRole && !reasonOrRole.includes(" "));
+    const roleMsg = isRole ? ` (requires role "${reasonOrRole}")` : "";
+    const reasonMsg = reasonOrRole && !isRole ? `: ${reasonOrRole}` : "";
+    super(`Access denied for tool "${toolName}"${roleMsg}${reasonMsg}.`);
     this.name = "ToolAccessDeniedError";
     this.toolName = toolName;
-    this.requiredRole = requiredRole;
+    if (isRole) {
+      this.requiredRole = reasonOrRole;
+    } else {
+      this.reason = reasonOrRole;
+    }
   }
 }
 

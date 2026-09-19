@@ -1,10 +1,45 @@
-import { DtoValidationError } from "./errors";
+import { DtoValidationError, ToolAccessDeniedError } from "./errors";
 import { auditToolResult } from "./guardrails";
 import type {
   IsolatedToolConfig,
   ToolExecutionContext,
   VercelAiCoreTool,
 } from "./types";
+
+async function verifyDataAccessGuard<TArgs>(
+  guard: ((args: TArgs, context?: ToolExecutionContext) => boolean | Promise<boolean>) | undefined,
+  args: TArgs,
+  context: ToolExecutionContext,
+  toolIdentifier: string
+): Promise<void> {
+  if (!guard) {
+    return;
+  }
+  const isAllowed = await guard(args, context);
+  if (!isAllowed) {
+    throw new ToolAccessDeniedError(toolIdentifier, "Access denied by data access guard");
+  }
+}
+
+async function resolveInvalidationTags<TArgs, TResult>(
+  config: IsolatedToolConfig<TArgs, TResult, any, any>,
+  args: TArgs,
+  rawResult: TResult,
+  context?: ToolExecutionContext
+): Promise<string[] | undefined> {
+  if (!config.invalidationTags) {
+    return undefined;
+  }
+  const tags =
+    typeof config.invalidationTags === "function"
+      ? await config.invalidationTags(args, rawResult)
+      : config.invalidationTags;
+
+  if (tags && tags.length > 0 && context?.onInvalidationTags) {
+    await context.onInvalidationTags(tags);
+  }
+  return tags;
+}
 
 async function dispatchClientData(
   rawResult: unknown,
@@ -88,6 +123,7 @@ async function processLlmPayload<TArgs, TResult>(
 /**
  * Creates an isolated tool compatible with Vercel AI SDK (ai) tool contract.
  * Features dual-channel separation (client data vs minimal LLM DTO),
+ * access governance (domain, resource, roles, dataAccessGuard, invalidationTags),
  * stable ID, aliasing, caching, Zod DTO contract validation, and automatic in-flight PII redaction.
  */
 export function createIsolatedTool<
@@ -101,6 +137,7 @@ export function createIsolatedTool<
   const toolId = config.id || config.name;
   const toolAlias = config.alias;
   const clientCallback = config.clientDto;
+  const toolIdentifier = toolAlias || config.name;
 
   const tool: VercelAiCoreTool<TArgs, TResult> = {
     description: config.description,
@@ -110,14 +147,37 @@ export function createIsolatedTool<
     _toolAlias: toolAlias,
     _isIsolated: true,
     _cacheTTL: config.cacheTTL,
+    _domain: config.domain,
+    _resource: config.resource,
+    _roles: config.roles ? Object.freeze([...config.roles]) : undefined,
+    _permissions: config.permissions ? Object.freeze([...config.permissions]) : undefined,
+    _requireApproval: config.requireApproval ?? false,
     _lastPiiFilteredCount: 0,
+    _lastInvalidationTags: undefined,
     async execute(args: TArgs, context?: ToolExecutionContext): Promise<any> {
       const updatedContext: ToolExecutionContext = {
         ...context,
         callChain: context?.callChain ?? Object.freeze([toolId]),
       };
 
+      await verifyDataAccessGuard(
+        config.dataAccessGuard,
+        args,
+        updatedContext,
+        toolIdentifier
+      );
+
       const rawResult = await config.execute(args, updatedContext);
+
+      const tags = await resolveInvalidationTags(
+        config,
+        args,
+        rawResult,
+        updatedContext
+      );
+      if (tags) {
+        tool._lastInvalidationTags = tags;
+      }
 
       await dispatchClientData(rawResult, clientCallback);
 
@@ -126,7 +186,7 @@ export function createIsolatedTool<
         args,
         updatedContext,
         config,
-        toolAlias || config.name
+        toolIdentifier
       );
 
       tool._lastPiiFilteredCount = protection.count;

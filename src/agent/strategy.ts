@@ -36,15 +36,81 @@ export class RoleBasedToolStrategy implements ToolSelectionStrategy {
     context: ToolContext
   ): RegisteredTool[] {
     if (!context.role) {
-      return tools.filter((t) => !t.requiredRoles || t.requiredRoles.length === 0);
+      return tools.filter((toolCandidate) => {
+        const roles = toolCandidate.roles ?? toolCandidate.requiredRoles;
+        return !roles || roles.length === 0;
+      });
     }
     const currentRole = context.role;
     return tools.filter((item) => {
-      if (!item.requiredRoles || item.requiredRoles.length === 0) {
+      const roles = item.roles ?? item.requiredRoles;
+      if (!roles || roles.length === 0) {
         return true;
       }
-      return item.requiredRoles.includes(currentRole);
+      return roles.includes(currentRole);
     });
+  }
+}
+
+export interface AccessControlToolStrategyOptions {
+  allowedDomains?: string[];
+}
+
+function matchesDomain(tool: RegisteredTool, allowedDomains?: Set<string>): boolean {
+  if (!allowedDomains) {
+    return true;
+  }
+  return Boolean(tool.domain && allowedDomains.has(tool.domain));
+}
+
+function matchesRoles(tool: RegisteredTool, context: ToolContext): boolean {
+  const toolRoles = tool.roles ?? tool.requiredRoles;
+  if (!toolRoles || toolRoles.length === 0) {
+    return true;
+  }
+  const userRoles: string[] = [];
+  if (context.role) {
+    userRoles.push(context.role);
+  }
+  if (context.roles) {
+    userRoles.push(...context.roles);
+  }
+  if (userRoles.length === 0) {
+    return false;
+  }
+  return toolRoles.some((roleName) => userRoles.includes(roleName));
+}
+
+function matchesPermissions(tool: RegisteredTool, context: ToolContext): boolean {
+  if (!tool.permissions || tool.permissions.length === 0) {
+    return true;
+  }
+  const userPermissions = context.permissions ?? [];
+  return tool.permissions.every((permissionName) => userPermissions.includes(permissionName));
+}
+
+/**
+ * Unified strategy evaluating role, permissions and allowed business domains in a single pass.
+ */
+export class AccessControlToolStrategy implements ToolSelectionStrategy {
+  private readonly allowedDomains?: Set<string>;
+
+  constructor(options?: AccessControlToolStrategyOptions) {
+    if (options?.allowedDomains) {
+      this.allowedDomains = new Set(options.allowedDomains);
+    }
+  }
+
+  public selectTools(
+    tools: RegisteredTool[],
+    context: ToolContext
+  ): RegisteredTool[] {
+    return tools.filter(
+      (tool) =>
+        matchesDomain(tool, this.allowedDomains) &&
+        matchesRoles(tool, context) &&
+        matchesPermissions(tool, context)
+    );
   }
 }
 

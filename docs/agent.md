@@ -31,6 +31,7 @@ import {
   createIsolatedTool,
   dto,
   DtoValidationError,
+  ToolAccessDeniedError,
   createStepRunner,
   createCustomStorageAdapter,
   KeyValueStorageAdapter,
@@ -41,6 +42,7 @@ import {
   ToolRegistry,
   PhaseBasedToolStrategy,
   RoleBasedToolStrategy,
+  AccessControlToolStrategy,
   CompositeToolStrategy,
 } from "avantgate/agent";
 ```
@@ -459,3 +461,82 @@ const runner = createStepRunner({
   storage,
 });
 ```
+
+---
+
+## 🛡️ 7. Tool Governance, Business Domains & Access Control
+
+Control tool execution, prevent IDOR vulnerabilities, organize tools by business domain, and emit universal cache invalidation tags:
+
+### A. Declarative Metadata & Security Guards
+
+```typescript
+import { createIsolatedTool, ToolAccessDeniedError } from "avantgate/agent";
+import { z } from "zod";
+
+export const deleteProspectTool = createIsolatedTool({
+  name: "delete_prospect",
+  domain: "crm",                  // 🏢 Business domain
+  resource: "prospects",          // 📦 Specific entity
+  roles: ["ADMIN"],               // 👥 Authorized roles
+  permissions: ["crm:delete"],     // 🔐 Granular permissions
+  requireApproval: true,          // ✋ Human-in-the-loop flag
+
+  // 🛡️ Pre-execution data security guard (anti-IDOR)
+  async dataAccessGuard(args, context) {
+    return args.tenantId === (context?.tenantId as string);
+  },
+
+  // 🏷️ Universal cache invalidation tags (Next.js revalidateTag or TanStack Query)
+  invalidationTags: (args) => ["crm:prospects", `crm:prospects:${args.id}`],
+
+  parameters: z.object({ id: z.string(), tenantId: z.string() }),
+  async execute(args) {
+    return await db.prospects.delete({ where: { id: args.id } });
+  },
+});
+```
+
+If `dataAccessGuard` returns `false`, execution immediately raises a `ToolAccessDeniedError`.
+
+### B. Unified Strategy: `AccessControlToolStrategy`
+
+Evaluates user roles, permissions, and permitted domains in a single pass:
+
+```typescript
+import { ToolRegistry, AccessControlToolStrategy } from "avantgate/agent";
+
+const registry = new ToolRegistry();
+registry.registerMany([createProspectTool, deleteProspectTool, sendInvoiceTool]);
+
+// Restrict tools to "crm" domain for a sales user with crm:write
+const strategy = new AccessControlToolStrategy({
+  allowedDomains: ["crm"],
+});
+
+const toolsForSales = strategy.selectTools(registry.getAll(), {
+  role: "SALES",
+  permissions: ["crm:write"],
+});
+
+// Pass directly to Vercel AI SDK
+const aiTools = ToolRegistry.toRecord(toolsForSales);
+```
+
+### C. Headless Descriptors & Domain Partitioning
+
+Export technical tool definitions without UI coupling, or partition tools by domain:
+
+```typescript
+// 1. Batch registration
+registry.registerMany([toolA, toolB, toolC]);
+
+// 2. Filter by domain
+const crmTools = registry.getByDomain("crm");
+const crmRecord = registry.toRecord({ domain: "crm" });
+
+// 3. Headless metadata export for client UI
+const descriptors = registry.getDescriptors({ domain: "crm", role: "ADMIN" });
+// Returns: [{ id, name, domain, resource, roles, permissions, requireApproval, tags }]
+```
+
