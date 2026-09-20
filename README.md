@@ -1,7 +1,7 @@
 # 🛡️ AvantGate (`avantgate`)
 
-> **The Zero-Infrastructure, In-Process LLM Control Plane for TypeScript.**  
-> Real-time cost control, token budgets, PII redaction, prompt guardrails, and multi-model failover **without hosting Docker, PostgreSQL, ClickHouse, or Redis.**
+> **The Zero-Infrastructure, In-Process AI Application Firewall (AI-WAF) & Privacy Guard for TypeScript.**  
+> Real-time prompt guardrails, zero-egress PII redaction, anti-IDOR tool boundary, and pre-flight token defense **without hosting Docker, proxies, PostgreSQL, ClickHouse, or Redis.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -10,25 +10,25 @@
 
 ---
 
-## ⚡ Why AvantGate? (The Problem with Heavy Observability)
+## ⚡ Why AvantGate? (Active Defense vs. Passive Proxies)
 
-Traditional LLM observability stacks like **Langfuse**, **Helicone**, or **LangSmith** are great, but for 90% of production apps, self-hosting them is a nightmare:
-- ❌ **Heavy Infrastructure**: Requires spinning up Next.js + PostgreSQL + ClickHouse + Redis + S3.
-- ❌ **VPS & Cloud Costs**: $30 to $100+/month just to monitor API calls.
-- ❌ **Passive / Post-Mortem**: They log errors and costs *after* you have already paid for the wasted tokens.
-- ❌ **Egress Latency & Privacy**: Sends user prompts over external HTTP networks.
+Most LLM security and observability solutions force you into an unacceptable trade-off:
+- ❌ **Data Egress & Privacy Hazards**: Cloud AI proxies (Helicone, Portkey) require routing your raw prompts through external third-party servers, creating compliance headaches and data leakage risks.
+- ❌ **Network Latency Tax**: External proxies inject **+50ms to 250ms of network overhead** on every single LLM call.
+- ❌ **Passive & Post-Mortem**: Traditional observability platforms (Langfuse, LangSmith) log token leaks and PII exposure *after* the damage is done and the money is spent.
+- ❌ **Heavy Infrastructure**: Self-hosting requires spinning up Next.js + PostgreSQL + ClickHouse + Redis + S3 just to inspect prompt traffic.
 
-### 🛡️ The AvantGate Philosophy: Active In-Process Control
-**AvantGate runs entirely inside your existing application process.** No external containers, no database required, no network latency.
+### 🛡️ The AvantGate Philosophy: In-Process Security Boundary
+**AvantGate runs entirely inside your existing application process.** No external proxy, no raw prompts leaving your perimeter unredacted, and 0 ms network latency.
 
 ```mermaid
 flowchart LR
-    App[Your Application] --> InputGuard[🛡️ Input & PII Guard]
-    InputGuard --> TokenBudget[💰 Token Budget Guard]
-    TokenBudget --> FallbackRouter[🔀 Fallback Router]
-    FallbackRouter --> Providers["LLM Providers (DeepSeek / Mistral / Ollama)"]
-    Providers --> JSONRepair[🔧 Zod JSON Self-Repair]
-    JSONRepair --> Audit[📊 Local Cost Ledger & Telemetry]
+    App[Your Application / Agent] --> InputGuard[🛡️ Ingress Guard<br/>Prompt Injection & Jailbreaks]
+    InputGuard --> PIIShield[🔒 In-Flight PII Redactor<br/>EU NIR, SPI, IBAN, Emails]
+    PIIShield --> TokenBudget[💰 Denial-of-Wallet Guard<br/>Pre-Flight Budget Bounds]
+    TokenBudget --> Providers["External LLM Providers<br/>(DeepSeek / Mistral / OpenAI)"]
+    Providers --> ToolBoundary[🛑 Tool Boundary & Anti-IDOR<br/>Dual-Channel DTO + Cycle Shield]
+    ToolBoundary --> SafeOutput[✅ Safe, Sanitized Execution]
 ```
 
 ---
@@ -43,34 +43,34 @@ Available as a **Managed Cloud Control Plane** or an **Out-of-Process High-Avail
 
 ---
 
-## 🚀 Key Features
+## 🚀 Key Security & Defense Features
 
-- 💰 **Pre-Flight Token Budgeting**: Rejects or truncates requests exceeding budget *before* invoking external APIs.
-- 🏷️ **Real-Time Cost Ledger**: Exact cent-level cost tracking calculated instantly across models (DeepSeek, Mistral, OpenAI, Anthropic, OpenRouter, and $0 local Ollama).
-- 🛡️ **Active Security & PII Redaction**: In-flight masking of emails, phone numbers, and French/EU identifiers before sending to cloud providers. Blocks prompt injection & jailbreaks.
-- 🔀 **Zero-Downtime Multi-Model Failover**: If DeepSeek or Mistral returns HTTP 429/500, seamlessly failover to a backup provider (or local Ollama) in milliseconds.
-- 🔧 **Self-Repairing Structured Outputs**: Strict Zod runtime validation with automated markdown/JSON repair if the LLM hallucinates formatting.
-- 🤖 **Durable Agent Harness & PII Shield (`avantgate/agent`)**: Serverless memoized step execution (`step.run()`), native Human-in-the-Loop approval (`step.waitForApproval()`), and Dual-Channel tool data isolation without Temporal or Redis.
-- 📡 **Zero-Dependency Telemetry Bridge (`HttpTelemetryExporter`, `PlatformStorageAdapter`)**: Mirror in-process executions and hierarchical tool traces asynchronously to any HTTP sink or observability endpoint with $0 external npm dependencies.
-- 📦 **100% Framework Agnostic**: Works in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
+- 🛡️ **Active Threat Defense & Prompt Guardrails**: Blocks prompt injections, DAN jailbreaks, adversarial noise, and system prompt exfiltration *before* external API invocation.
+- 🔒 **Zero-Egress Data Loss Prevention (DLP)**: Automated local redaction of emails, phone numbers, IBAN/BIC, and French/EU identifiers (NIR SSN, SPI tax ID) before network egress.
+- 🎭 **Dual-Channel Tool Isolation (`avantgate/agent`)**: Decouples sensitive database records (streamed out-of-band directly to client UIs) from minimal cognitive LLM context (`llmDto`), keeping confidential fields out of context windows.
+- 🛑 **Anti-IDOR & Access Governance**: Enforces Row-Level Security (`dataAccessGuard`), business domain partitioning, and granular role-based permissions at the agent tool boundary.
+- 💰 **Denial-of-Wallet & Pre-Flight Budgeting**: Enforces strict token and cent-level USD budget limits, rejecting abusive requests before paying for upstream inference.
+- 🔀 **Zero-Downtime Multi-Model Failover**: Seamless client-side failover to fallback providers (or local zero-cost Ollama) when upstream APIs return HTTP 429/500 errors.
+- 🔧 **Self-Repairing Structured Outputs**: Strict Zod schema compliance with automated heuristic markdown/JSON repair if the model hallucinates formatting.
+- 📡 **Zero-Dependency Telemetry Bridge (`HttpTelemetryExporter`, `PlatformStorageAdapter`)**: Mirror execution audits and hierarchical tool traces asynchronously without adding heavy external dependencies.
+- 📦 **100% Framework Agnostic**: Works seamlessly in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
 
 ---
 
-## 📊 Comparison: Langfuse vs. AvantGate
+## 📊 Comparison: Direct LLM vs. Cloud AI Proxy vs. AvantGate
 
-| Capability | Langfuse (Self-Hosted) | AvantGate (`avantgate`) |
-|---|:---:|:---:|
-| **Infrastructure Required** | Docker + Postgres + ClickHouse + Redis | **Zero Infrastructure** (Pure npm package) |
-| **Hosting Cost** | $30 - $100 / month | **$0 / month** (Runs inside your app) |
-| **Token Budget Enforcement** | ❌ Passive logging only | ✅ **Active Pre-Flight Guard** (Blocks before spending) |
-| **In-Flight PII Redaction** | ❌ Logs all raw data | ✅ **Automatic local masking** before API dispatch |
-| **Multi-Provider Failover** | ❌ No | ✅ **Built-in Fallback Router & Exponential Retry** |
-| **Zod Schema Auto-Repair** | ❌ No | ✅ **Built-in JSON Heuristic Repair** |
-| **Durable Workflow & HITL** | Requires Temporal / Inngest | ✅ **Built-in In-Process Step Runner & HITL** |
-| **Tool PII & Dual-Channel** | ❌ No | ✅ **Built-in `createIsolatedTool`** |
-| **Telemetry Network Latency** | ❌ +50ms - 200ms per trace call | ✅ **0 ms** (In-process memory accounting) |
-| **Central Web Dashboard** | Heavy self-hosted web app | ✅ **Optional Remote Sink** (Plug any HTTP endpoint via `PlatformStorageAdapter`) |
-| **Hierarchical Session Replay** | ❌ Flat span waterfall | ✅ **Causality Tree + Dual-Channel Isolation** |
+| Capability & Security Boundary | Direct LLM Calls | Cloud AI Proxy (Helicone / Portkey) | 🛡️ **AvantGate (`avantgate`)** |
+|---|:---:|:---:|:---:|
+| **Security Architecture** | None (Direct HTTP) | External Cloud Proxy | **In-Process Security Boundary** |
+| **Data Privacy & DLP** | ❌ Raw PII leaves perimeter | ⚠️ Unencrypted prompts transit proxy | ✅ **Sanitized in-flight locally (Zero Egress)** |
+| **Network Latency Overhead** | 0 ms | ❌ +50ms - 250ms (Extra hop) | ✅ **0 ms (In-process execution)** |
+| **Prompt Injection Defense** | ❌ None | ⚠️ Passive detection | ✅ **Active Pre-Flight Guard (Blocks before spend)** |
+| **Agent Tool Data Isolation** | ❌ Entire DB entity in LLM | ❌ No agent tool awareness | ✅ **Dual-Channel DTO (`clientDto` vs `llmDto`)** |
+| **Row-Level Security & Anti-IDOR** | ❌ Manual code | ❌ Not supported | ✅ **Native `dataAccessGuard` & Domain Boundary** |
+| **Infrastructure Overhead** | None | SaaS Subscription | ✅ **$0 / Zero Servers (Pure npm package)** |
+| **Multi-Model Failover** | ❌ App crashes | ⚠️ Proxy-dependent | ✅ **Built-in Fallback Router & Exponential Retry** |
+| **Zod Schema Auto-Repair** | ❌ No | ❌ No | ✅ **Built-in JSON Heuristic Repair** |
+| **Hierarchical Session Replay** | ❌ None | ⚠️ Flat span waterfall | ✅ **Causality Tree + Dual-Channel Isolation** |
 
 ---
 
@@ -100,7 +100,7 @@ Comprehensive guides, copy-pasteable integration recipes, and architectural refe
 
 | Guide | Description |
 |---|---|
-| **[Code Examples & Recipes](docs/examples.md)** | Full walkthroughs for cost tracking, Zod self-repair, multi-model failover, PII masking, pre-flight budgets, and the prompt engine. |
+| **[Code Examples & Recipes](docs/examples.md)** | End-to-end security guardrails, PII redaction, anti-IDOR tool boundaries, cost tracking, Zod self-repair, and multi-model failover. |
 | **[Decoupled Pricing & DB Adapters](docs/pricing.md)** | Dynamic token pricing, database integration (Prisma / PostgreSQL / Drizzle), in-memory TTL caching, and runtime overrides. |
 | **[Durable Agent Harness & Tool Isolation](docs/agent.md)** | Serverless durable step execution, Human-in-the-Loop suspension, dual-channel DTO tool isolation, and telemetry streaming. |
 
