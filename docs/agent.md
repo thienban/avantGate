@@ -179,6 +179,89 @@ export const searchClientsTool = createIsolatedTool({
 });
 ```
 
+### C. 🛡️ Defense-in-Depth: Compile-Time Guards vs In-Flight Recursive DLP
+
+Agent data protection requires a two-layered defense strategy:
+
+| Layer | Enforcer | Target | What It Solves |
+|---|---|---|---|
+| **Layer 1: Structural Boundary** | `dto.exhaustivePick` (TypeScript `tsc`) | Known static entity schema & columns | Halts CI/build if backend entities drift without conscious arbitration (`keep` vs `drop`). |
+| **Layer 2: Content & Blob Inspection** | In-flight DLP Scanner (`recursivelySanitize`) | Free text, `jsonb`, `Record<string, unknown>` | Catches runtime PII hidden inside unstructured text or dynamic blobs where TypeScript has no static keys. |
+
+#### The Dynamic JSON & Metadata Gap
+
+When an entity exposes unstructured columns (e.g. `metadata: Record<string, unknown>`, PostgreSQL `jsonb`, or MongoDB attributes), TypeScript cannot enumerate internal properties at compile-time. Furthermore, legitimate free-text columns (e.g. `agentNotes: string`) can inadvertently carry confidential client information.
+
+AvantGate bridges this boundary by combining compile-time exhaustiveness with **deep recursive runtime inspection** (including circular reference guards):
+
+```typescript
+import { createIsolatedTool, dto } from "avantgate/agent";
+import { z } from "zod";
+
+interface SupportTicketEntity {
+  id: string;
+  status: string;
+  internalRoutingTag: string;
+  
+  // ⚠️ Dynamic JSON column (TypeScript cannot inspect nested keys at compile-time)
+  metadata: Record<string, unknown>; 
+}
+
+export const getTicketTool = createIsolatedTool({
+  name: "get_support_ticket",
+  description: "Fetch support ticket and dynamic custom metadata",
+  parameters: z.object({ ticketId: z.string() }),
+
+  async execute(args): Promise<SupportTicketEntity> {
+    return {
+      id: args.ticketId,
+      status: "OPEN",
+      internalRoutingTag: "TIER_3_INTERNAL",
+      // Nested unstructured data containing emergent PII:
+      metadata: {
+        crmLeadId: "lead_982",
+        agentNotes: "Customer requested callback at 06 12 34 56 78 or john.doe@enterprise.com",
+        billingContext: {
+          ibanProvided: "FR76 3000 6000 0112 3456 7890 189",
+        },
+      },
+    };
+  },
+
+  // 🛡️ LAYER 1 (Compile-Time): Structural boundary
+  // Enforces explicit arbitration on all known top-level fields of SupportTicketEntity
+  llmDto: dto.exhaustivePick<SupportTicketEntity>()({
+    keep: ["id", "status", "metadata"], // 'metadata' is intentionally routed to LLM
+    drop: ["internalRoutingTag"],       // Stripped from LLM view
+  }),
+
+  // 🔒 LAYER 2 (Runtime Recursive DLP):
+  // Recursively traverses nested objects and arrays within 'metadata'
+  sanitizePii: true, // Auto-redacts emails, phones, French NIR/SPI, IBAN/BIC with [REDACTED_*]
+
+  // Optional Strict Circuit-Breaker:
+  // throwOnPii: true, // Halts execution and raises PiiLeakError if any PII token is caught
+});
+```
+
+#### Payload Delivered to the LLM:
+
+Even though `metadata` is a dynamic dictionary without static keys, AvantGate's recursive scanner deep-inspects every nested property:
+
+```json
+{
+  "id": "TCK-104",
+  "status": "OPEN",
+  "metadata": {
+    "crmLeadId": "lead_982",
+    "agentNotes": "Customer requested callback at [REDACTED_PHONE] or [REDACTED_EMAIL]",
+    "billingContext": {
+      "ibanProvided": "[REDACTED_IBAN]"
+    }
+  }
+}
+```
+
 ---
 
 ## ⚡ 2. Durable Step Execution & Human-in-the-Loop
