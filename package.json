@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Zero-infrastructure, in-process LLM control plane & SaaS observability bridge: real-time cost control, token budgets, PII redaction, prompt guardrails, multi-model failover, durable agent workflow harness, and HTTP telemetry without hosting heavy servers.",
   "author": "Antigravity & LexTalk Team",
   "license": "MIT",

@@ -57,6 +57,7 @@ Wrap your tools with `createIsolatedTool` to separate client-side rich data from
 - **LLM DTO (`llmDto`)**: Emits minimal, cognitive-optimized projections to the model, reducing token costs and preventing PII leaks.
 - **DTO Validation (`llmDtoSchema`)**: Enforces strict Zod schema compliance on the generated LLM DTO at runtime.
 - **Declarative Helpers (`dto.*`)**: Ready-to-use boilerplate reducers for booleans, counts, and whitelisted fields.
+- **Exhaustive Projection (`dto.exhaustivePick`)**: Compile-time Type Guard preventing the "Orphan Schema" trap by enforcing explicit conscious arbitration (`keep` vs `drop`) on all source fields.
 
 ### A. Declarative Helpers (`dto`)
 
@@ -107,9 +108,46 @@ export const getProspectSummaryTool = createIsolatedTool({
   },
   llmDto: dto.pick(["id", "stage", "annualRevenue"]),
 });
+
+// 5. Exhaustive projection with compile-time drift guard (dto.exhaustivePick)
+// Prevents the "Orphan Schema" trap: every source field MUST be explicitly categorized as 'keep' (LLM) or 'drop' (ignored).
+// If a backend engineer adds a new field to ProspectEntity 6 months later, TypeScript refuses to compile until it is addressed.
+interface ProspectEntity {
+  id: string;
+  stage: string;
+  annualRevenue: number;
+  internalRiskScore: number;
+  stripeCustomerId: string;
+}
+
+export const getProspectExhaustiveTool = createIsolatedTool({
+  name: "get_prospect_exhaustive",
+  description: "Get prospect with compile-time drift protection",
+  parameters: z.object({ id: z.string() }),
+  async execute(args): Promise<ProspectEntity> {
+    return await db.prospects.find(args.id);
+  },
+  llmDto: dto.exhaustivePick<ProspectEntity>()({
+    keep: ["id", "stage", "annualRevenue"],
+    drop: ["internalRiskScore", "stripeCustomerId"],
+  }),
+});
 ```
 
+
 ### B. Custom Functional DTO & Dual-Channel
+
+#### 🎯 Role & Architecture: Why Dual-Channel?
+In agentic workflows, an isolated tool serves two distinct consumers with opposing requirements:
+1. **The Human User Interface (Client Channel)** requires full, rich, unredacted domain entities (e.g. detailed client profiles, data grids, raw timestamps, charts). Transmitting this via `clientDto` bypasses the LLM context entirely.
+2. **The Large Language Model (Cognitive Channel)** only needs an actionable synthesis (e.g. *"Found 5 matching clients, 0 conflicts"*). Injecting raw database records wastes context window budget and risks leaking confidential/PII data.
+
+#### 💡 When & Why use a Custom Functional DTO instead of `dto.exhaustivePick`?
+While `dto.exhaustivePick` provides strict 1:1 compile-time field filtering on static entity records, a **Custom Functional DTO** (`llmDto: (data, args, context) => ...`) is indispensable for:
+- **Cognitive Aggregation & Token Compression**: Collapsing an array of 100 entities into high-level metrics (`hasAvailableSlots: boolean`, `nextSlot: string`), saving thousands of prompt tokens.
+- **Derived / Computed Properties**: Generating indicators that do not exist on the raw database entity (e.g., status flags, price conversions, diff calculations).
+- **Contextual Correlation**: Computing values based on the initial query arguments (`args`) or shared workflow state (`context.state`), e.g., verifying whether returned dates match `args.requestedDate`.
+- **Contract Enforcement**: Combined with `llmDtoSchema`, it guarantees runtime Zod validation of the projected payload before it reaches the model.
 
 ```typescript
 export const searchClientsTool = createIsolatedTool({

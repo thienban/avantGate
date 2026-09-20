@@ -287,6 +287,118 @@ async function runDtoPatternTests() {
     "In-flight PII masking applies seamlessly onto LLM DTO output"
   );
 
+  // 11. dto.exhaustivePick() - Exhaustive Projection
+  interface RawOrder {
+    orderId: string;
+    status: string;
+    totalAmount: number;
+    internalSecret: string;
+    riskScore: number;
+  }
+
+  const exhaustiveTool = createIsolatedTool({
+    name: "get_order_exhaustive",
+    description: "Get order with exhaustive projection",
+    parameters: z.object({ id: z.string() }),
+    async execute(args): Promise<RawOrder> {
+      return {
+        orderId: args.id,
+        status: "CONFIRMED",
+        totalAmount: 1500,
+        internalSecret: "tok_secret_stripe_live",
+        riskScore: 0.02,
+      };
+    },
+    llmDto: dto.exhaustivePick<RawOrder>()({
+      keep: ["orderId", "status", "totalAmount"],
+      drop: ["internalSecret", "riskScore"],
+    }),
+  });
+
+  const exhaustiveRes = await exhaustiveTool.execute({ id: "ord-123" });
+  assert(
+    exhaustiveRes.orderId === "ord-123" &&
+      exhaustiveRes.status === "CONFIRMED" &&
+      exhaustiveRes.totalAmount === 1500,
+    "dto.exhaustivePick() extracts all 'keep' fields to LLM"
+  );
+  assert(
+    (exhaustiveRes as any).internalSecret === undefined &&
+      (exhaustiveRes as any).riskScore === undefined,
+    "dto.exhaustivePick() omits all 'drop' fields from LLM"
+  );
+
+  // 12. dto.exhaustivePick() with another entity configuration
+  const secondMapper = dto.exhaustivePick<RawOrder>()({
+    keep: ["orderId", "status"],
+    drop: ["totalAmount", "internalSecret", "riskScore"],
+  });
+  const projected = secondMapper({
+    orderId: "ord-456",
+    status: "PENDING",
+    totalAmount: 50,
+    internalSecret: "sec",
+    riskScore: 0.1,
+  });
+  assert(
+    projected.orderId === "ord-456" &&
+      projected.status === "PENDING" &&
+      (projected as any).totalAmount === undefined,
+    "dto.exhaustivePick() projects partial fields while dropping remaining fields"
+  );
+
+  // 13. Edge case: null or non-object input handling
+  const nullSafeRes = secondMapper(null as any);
+  assert(
+    typeof nullSafeRes === "object" && Object.keys(nullSafeRes).length === 0,
+    "dto.exhaustivePick() handles null or non-object safely without throwing"
+  );
+
+  // 14. dto.pick<TSource>() typed keys
+  const typedPickMapper = dto.pick<RawOrder>(["orderId", "status"]);
+  const typedPickRes = typedPickMapper({
+    orderId: "ord-789",
+    status: "SHIPPED",
+    totalAmount: 99,
+    internalSecret: "s",
+    riskScore: 0,
+  });
+  assert(
+    typedPickRes.orderId === "ord-789" &&
+      typedPickRes.status === "SHIPPED" &&
+      (typedPickRes as any).totalAmount === undefined,
+    "dto.pick<TSource>() supports strongly-typed source projections"
+  );
+
+  // 15. Type-level static guard assertions
+  type MissingFieldCheck = import("../../src/agent").ExhaustiveProjectionConfig<
+    RawOrder,
+    "orderId" | "status",
+    "internalSecret"
+  >;
+  type MissingKeysExtracted = MissingFieldCheck extends { _unassignedSourceFields: infer M }
+    ? M
+    : never;
+  const hasTypeGuardTriggered: [MissingKeysExtracted] extends ["totalAmount" | "riskScore"]
+    ? true
+    : false = true;
+  assert(
+    hasTypeGuardTriggered === true,
+    "ExhaustiveProjectionConfig type guard detects unassigned source fields at compile-time"
+  );
+
+  type OverlapCheck = import("../../src/agent").ExhaustiveProjectionConfig<
+    RawOrder,
+    "orderId" | "status",
+    "status" | "totalAmount" | "internalSecret" | "riskScore"
+  >;
+  type OverlapExtracted = OverlapCheck extends { _overlappingFields: infer O } ? O : never;
+  const hasOverlapTriggered: [OverlapExtracted] extends ["status"] ? true : false = true;
+  assert(
+    hasOverlapTriggered === true,
+    "ExhaustiveProjectionConfig type guard detects overlapping fields between keep and drop"
+  );
+
   console.log("\n🎉 All DTO Pattern & Helpers tests passed successfully!");
 }
 

@@ -1,7 +1,7 @@
 /**
  * Declarative DTO Projection Helpers for avantgate/agent.
- * Standardizes common tool output projections (booleans, count, field pick)
- * to minimize LLM token consumption and prevent PII leakage.
+ * Standardizes common tool output projections (booleans, count, field pick, exhaustive projection)
+ * to minimize LLM token consumption, prevent PII leakage, and guard against schema drift.
  */
 
 export interface DtoBooleanResult {
@@ -11,6 +11,50 @@ export interface DtoBooleanResult {
 export interface DtoCountResult {
   success: true;
   count: number;
+}
+
+/**
+ * Type Guard ensuring compile-time exhaustiveness for DTO projections.
+ * Requires every key of TSource to be explicitly assigned to either 'keep' or 'drop'.
+ * Emits descriptive type errors (_unassignedSourceFields or _overlappingFields) upon discrepancy.
+ */
+export type ExhaustiveProjectionConfig<
+  TSource,
+  TKeep extends keyof TSource,
+  TDrop extends keyof TSource
+> = [Exclude<keyof TSource, TKeep | TDrop>] extends [never]
+  ? [Extract<TKeep, TDrop>] extends [never]
+    ? {
+        keep: readonly TKeep[];
+        drop: readonly TDrop[];
+      }
+    : {
+        keep: readonly TKeep[];
+        drop: readonly TDrop[];
+        /** ❌ Compile Error: A field cannot be present in both 'keep' and 'drop' */
+        _overlappingFields: Extract<TKeep, TDrop>;
+      }
+  : {
+      keep: readonly TKeep[];
+      drop: readonly TDrop[];
+      /** ❌ Compile Error: Unassigned source fields! You must explicitly add these keys to either 'keep' or 'drop' */
+      _unassignedSourceFields: Exclude<keyof TSource, TKeep | TDrop>;
+    };
+
+function extractWhitelistedFields<TSource, K extends keyof TSource>(
+  data: TSource,
+  keys: readonly K[] | K[]
+): Pick<TSource, K> {
+  const result = {} as Pick<TSource, K>;
+  if (!data || typeof data !== "object") {
+    return result;
+  }
+  for (const key of keys) {
+    if (key in data) {
+      (result as any)[key] = (data as any)[key];
+    }
+  }
+  return result;
 }
 
 export const dto = {
@@ -46,20 +90,26 @@ export const dto = {
     },
 
   /**
-   * Filters raw output by extracting only a strict whitelist of allowed fields.
+   * Filters raw output by extracting only a whitelist of allowed fields.
+   * Supports optional TSource generic parameter for auto-completion.
    */
   pick:
-    <T extends string>(keys: readonly T[] | T[]) =>
-    (data: any): Record<T, unknown> => {
-      const result = {} as Record<T, unknown>;
-      if (!data || typeof data !== "object") {
-        return result;
-      }
-      for (const key of keys) {
-        if (key in data) {
-          result[key] = data[key];
-        }
-      }
-      return result;
-    },
+    <TSource = any, K extends keyof TSource = any>(keys: readonly K[] | K[]) =>
+    (data: TSource): Pick<TSource, K> =>
+      extractWhitelistedFields(data, keys),
+
+  /**
+   * Compile-time guarded exhaustive projection.
+   * Forces developers to explicitly classify every key of TSource as either 'keep' (sent to LLM)
+   * or 'drop' (ignored), preventing silent schema drift when source types evolve.
+   */
+  exhaustivePick:
+    <TSource>() =>
+    <const TKeep extends keyof TSource, const TDrop extends keyof TSource>(
+      config: ExhaustiveProjectionConfig<TSource, TKeep, TDrop>
+    ) =>
+    (data: TSource): Pick<TSource, TKeep> =>
+      extractWhitelistedFields(data, config.keep),
 };
+
+
