@@ -149,6 +149,11 @@ export interface ToolExecutionContext {
 }
 
 /**
+ * Nature physique d'effet de bord et rayon d'action de l'outil pour le confinement du LLM.
+ */
+export type ToolImpact = "READ_ONLY" | "MUTATIVE" | "DESTRUCTIVE";
+
+/**
  * User and environment context injected into tools.
  */
 export interface ToolContext {
@@ -156,7 +161,6 @@ export interface ToolContext {
   tenantId?: string;
   role?: string;
   roles?: string[];
-  permissions?: string[];
   phase?: string;
   metadata?: Record<string, unknown>;
   [key: string]: unknown;
@@ -196,7 +200,7 @@ export type DataAccessGuard<TArgs = any> = (
 
 /**
  * Configuration for creating an isolated tool with PII protection, Dual-Channel DTO,
- * access governance, stable ID, aliasing and caching.
+ * access governance, stable ID, aliasing, impact categorization and caching.
  */
 export interface IsolatedToolConfig<
   TArgs = any,
@@ -211,7 +215,7 @@ export interface IsolatedToolConfig<
   domain?: string;
   resource?: string;
   roles?: string[];
-  permissions?: string[];
+  impact?: ToolImpact;
   requireApproval?: boolean;
   dataAccessGuard?: DataAccessGuard<TArgs>;
   invalidationTags?: InvalidationTagsResolver<TArgs, TResult>;
@@ -243,7 +247,7 @@ export interface VercelAiCoreTool<TArgs = any, TResult = any> {
   readonly _domain?: string;
   readonly _resource?: string;
   readonly _roles?: readonly string[];
-  readonly _permissions?: readonly string[];
+  readonly _impact?: ToolImpact;
   readonly _requireApproval?: boolean;
   _lastPiiFilteredCount?: number;
   _lastInvalidationTags?: string[];
@@ -260,7 +264,7 @@ export interface RegisteredTool<TArgs = any, TResult = any> {
   domain?: string;
   resource?: string;
   roles?: string[];
-  permissions?: string[];
+  impact?: ToolImpact;
   phases?: string[];
   requiredRoles?: string[];
   tags?: string[];
@@ -279,7 +283,7 @@ export interface ToolDescriptor {
   domain?: string;
   resource?: string;
   roles?: string[];
-  permissions?: string[];
+  impact?: ToolImpact;
   requireApproval?: boolean;
   cacheTTL?: number;
   tags?: string[];

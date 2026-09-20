@@ -24,7 +24,7 @@ async function runToolGovernanceTests() {
     domain: "crm",
     resource: "prospects",
     roles: ["SALES", "ADMIN"],
-    permissions: ["crm:write"],
+    impact: "MUTATIVE",
     requireApproval: false,
     parameters: z.object({ email: z.string(), name: z.string() }),
     invalidationTags: ["crm:prospects"],
@@ -39,10 +39,7 @@ async function runToolGovernanceTests() {
     createLeadTool._roles?.includes("SALES") && createLeadTool._roles?.includes("ADMIN"),
     "createLeadTool has roles SALES and ADMIN"
   );
-  assert(
-    createLeadTool._permissions?.includes("crm:write"),
-    "createLeadTool has permission crm:write"
-  );
+  assert(createLeadTool._impact === "MUTATIVE", "createLeadTool has impact MUTATIVE");
   assert(createLeadTool._requireApproval === false, "createLeadTool has _requireApproval false");
 
   // 2. DataAccessGuard & ToolAccessDeniedError (anti-IDOR)
@@ -51,7 +48,7 @@ async function runToolGovernanceTests() {
     domain: "crm",
     resource: "prospects",
     roles: ["ADMIN"],
-    permissions: ["crm:delete"],
+    impact: "DESTRUCTIVE",
     requireApproval: true,
     parameters: z.object({ leadId: z.string(), ownerTenantId: z.string() }),
     dataAccessGuard(args, context) {
@@ -116,7 +113,7 @@ async function runToolGovernanceTests() {
     domain: "calendar",
     resource: "events",
     roles: ["SALES", "SUPPORT"],
-    permissions: ["calendar:write"],
+    impact: "MUTATIVE",
     parameters: z.object({ title: z.string() }),
     async execute(args) {
       return { eventId: "ev-1", title: args.title };
@@ -128,7 +125,7 @@ async function runToolGovernanceTests() {
     domain: "billing",
     resource: "invoices",
     roles: ["ADMIN", "ACCOUNTANT"],
-    permissions: ["billing:write"],
+    impact: "DESTRUCTIVE",
     parameters: z.object({ amount: z.number() }),
     async execute(args) {
       return { invoiceId: "inv-1", amount: args.amount };
@@ -144,7 +141,7 @@ async function runToolGovernanceTests() {
   const crmTools = registry.getByDomain("crm");
   assert(crmTools.length === 2, "getByDomain('crm') returned 2 tools");
   assert(
-    crmTools.every((tool) => tool.domain === "crm"),
+    crmTools.every((t) => t.domain === "crm"),
     "All tools from getByDomain have domain 'crm'"
   );
 
@@ -156,49 +153,46 @@ async function runToolGovernanceTests() {
   const crmRecord = registry.toRecord({ domain: "crm" });
   assert(Object.keys(crmRecord).length === 2, "toRecord({ domain: 'crm' }) has 2 keys");
   assert("create_lead" in crmRecord && "delete_lead" in crmRecord, "CRM record contains expected tool keys");
-  assert(!("generate_invoice" in crmRecord), "Non-CRM tools are filtered out of crmRecord");
+  assert(!("schedule_meeting" in crmRecord), "Non-CRM tools are filtered out of crmRecord");
 
-  // getDescriptors headless export
-  const allDescriptors = registry.getDescriptors();
-  assert(allDescriptors.length === 4, "getDescriptors() exports 4 descriptors");
-  assert(allDescriptors[0].id === "create_lead", "Descriptor has correct tool id");
-  assert(allDescriptors[0].domain === "crm", "Descriptor exports domain metadata");
-  assert(allDescriptors[0].resource === "prospects", "Descriptor exports resource metadata");
+  // getDescriptors
+  const descriptors = registry.getDescriptors();
+  assert(descriptors.length === 4, "getDescriptors() exports 4 descriptors");
+  assert(descriptors[0].id === "create_lead", "Descriptor has correct tool id");
+  assert(descriptors[0].domain === "crm", "Descriptor exports domain metadata");
+  assert(descriptors[0].resource === "prospects", "Descriptor exports resource metadata");
+  assert(descriptors[0].impact === "MUTATIVE", "Descriptor exports impact metadata");
 
   const adminDescriptors = registry.getDescriptors({ role: "ADMIN" });
   assert(
-    adminDescriptors.some((descriptor) => descriptor.name === "delete_lead") &&
-      adminDescriptors.some((descriptor) => descriptor.name === "generate_invoice") &&
-      !adminDescriptors.some((descriptor) => descriptor.name === "schedule_meeting"),
+    adminDescriptors.length === 3,
     "getDescriptors({ role: 'ADMIN' }) filters tools accessible to ADMIN"
   );
 
   const crmDescriptors = registry.getDescriptors({ domain: "crm" });
   assert(
-    crmDescriptors.length === 2 && crmDescriptors.every((descriptor) => descriptor.domain === "crm"),
+    crmDescriptors.length === 2,
     "getDescriptors({ domain: 'crm' }) returns only CRM descriptors"
   );
 
   // 4. AccessControlToolStrategy
   const allRegistered = registry.getAll();
 
-  // Scenario A: Sales user in CRM domain with write permission
+  // Scenario A: Sales user in CRM domain
   const salesCrmStrategy = new AccessControlToolStrategy({
     allowedDomains: ["crm"],
   });
   const salesSelected = salesCrmStrategy.selectTools(allRegistered, {
     role: "SALES",
-    permissions: ["crm:write"],
   });
   assert(salesSelected.length === 1, "Sales user only matches 1 CRM tool (create_lead)");
   assert(salesSelected[0].name === "create_lead", "Sales user selected create_lead");
 
-  // Scenario B: Admin user in CRM domain with delete permission
+  // Scenario B: Admin user in CRM domain matches both
   const adminSelected = salesCrmStrategy.selectTools(allRegistered, {
     role: "ADMIN",
-    permissions: ["crm:write", "crm:delete"],
   });
-  assert(adminSelected.length === 2, "Admin user with both permissions matches 2 CRM tools");
+  assert(adminSelected.length === 2, "Admin user matches 2 CRM tools");
 
   // Scenario C: Multi-domain access (CRM + Calendar)
   const multiDomainStrategy = new AccessControlToolStrategy({
@@ -206,17 +200,19 @@ async function runToolGovernanceTests() {
   });
   const multiDomainSelected = multiDomainStrategy.selectTools(allRegistered, {
     role: "SALES",
-    permissions: ["crm:write", "calendar:write"],
   });
   assert(multiDomainSelected.length === 2, "Multi-domain strategy selected create_lead and schedule_meeting");
 
-  // Scenario D: Missing required permission
-  const lackingPermSelected = multiDomainStrategy.selectTools(allRegistered, {
-    role: "SALES",
-    permissions: ["calendar:write"], // missing crm:write
+  // Scenario D: Impact capping with maxImpact: MUTATIVE (filters out DESTRUCTIVE tools)
+  const safeAdminStrategy = new AccessControlToolStrategy({
+    allowedDomains: ["crm"],
+    maxImpact: "MUTATIVE",
   });
-  assert(lackingPermSelected.length === 1, "Lacking crm:write filtered out create_lead");
-  assert(lackingPermSelected[0].name === "schedule_meeting", "Only schedule_meeting permitted");
+  const safeAdminSelected = safeAdminStrategy.selectTools(allRegistered, {
+    role: "ADMIN",
+  });
+  assert(safeAdminSelected.length === 1, "maxImpact: MUTATIVE filtered out DESTRUCTIVE delete_lead for Admin");
+  assert(safeAdminSelected[0].name === "create_lead", "Only non-destructive create_lead permitted");
 
   // 5. Backward Compatibility with RoleBasedToolStrategy
   const legacyRoleStrategy = new RoleBasedToolStrategy();

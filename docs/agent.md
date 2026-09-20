@@ -587,7 +587,7 @@ const runner = createStepRunner({
 
 ## 🛡️ 7. Tool Governance, Business Domains & Access Control
 
-Control tool execution, prevent IDOR vulnerabilities, organize tools by business domain, and emit universal cache invalidation tags:
+Control tool execution, prevent IDOR vulnerabilities, enforce the Golden Triad of Tool Governance (`roles` IAM vs `impact` AI blast radius vs `requireApproval` HITL), and emit universal cache invalidation tags:
 
 ### A. Declarative Metadata & Security Guards
 
@@ -599,9 +599,9 @@ export const deleteProspectTool = createIsolatedTool({
   name: "delete_prospect",
   domain: "crm",                  // 🏢 Business domain
   resource: "prospects",          // 📦 Specific entity
-  roles: ["ADMIN"],               // 👥 Authorized roles
-  permissions: ["crm:delete"],     // 🔐 Granular permissions
-  requireApproval: true,          // ✋ Human-in-the-loop flag
+  roles: ["ADMIN"],               // 👥 Authorized user roles (IAM)
+  impact: "DESTRUCTIVE",          // 🛡️ Physical impact: "READ_ONLY" | "MUTATIVE" | "DESTRUCTIVE"
+  requireApproval: true,          // ✋ Safe default: auto-enabled for DESTRUCTIVE tools
 
   // 🛡️ Pre-execution data security guard (anti-IDOR)
   async dataAccessGuard(args, context) {
@@ -620,44 +620,53 @@ export const deleteProspectTool = createIsolatedTool({
 
 If `dataAccessGuard` returns `false`, execution immediately raises a `ToolAccessDeniedError`.
 
-### B. Unified Strategy: `AccessControlToolStrategy`
+### B. Cognitive Confinement & Unified Strategy (`AccessControlToolStrategy`)
 
-Evaluates user roles, permissions, and permitted domains in a single pass:
+Evaluates user roles, allowed business domains, and maximum impact ceiling in a single pass:
 
 ```typescript
-import { ToolRegistry, AccessControlToolStrategy } from "avantgate/agent";
+import {
+  ToolRegistry,
+  AccessControlToolStrategy,
+  ReadOnlyToolStrategy,
+  MaxImpactToolStrategy,
+} from "avantgate/agent";
 
 const registry = new ToolRegistry();
 registry.registerMany([createProspectTool, deleteProspectTool, sendInvoiceTool]);
 
-// Restrict tools to "crm" domain for a sales user with crm:write
+// 1. Restrict tools to "crm" domain for a sales user, capped at MUTATIVE impact
 const strategy = new AccessControlToolStrategy({
   allowedDomains: ["crm"],
+  maxImpact: "MUTATIVE", // Excludes DESTRUCTIVE tools (e.g. delete_prospect)
 });
 
 const toolsForSales = strategy.selectTools(registry.getAll(), {
   role: "SALES",
-  permissions: ["crm:write"],
 });
 
 // Pass directly to Vercel AI SDK
 const aiTools = ToolRegistry.toRecord(toolsForSales);
+
+// 2. Pure Read-Only strategy (Strictly non-mutative tools for auditor/critic/planner agents)
+const criticStrategy = new ReadOnlyToolStrategy();
+const auditorTools = criticStrategy.selectTools(registry.getAll(), {});
 ```
 
 ### C. Headless Descriptors & Domain Partitioning
 
-Export technical tool definitions without UI coupling, or partition tools by domain:
+Export technical tool definitions without UI coupling, or partition tools by domain/impact:
 
 ```typescript
 // 1. Batch registration
 registry.registerMany([toolA, toolB, toolC]);
 
-// 2. Filter by domain
+// 2. Filter by domain or impact
 const crmTools = registry.getByDomain("crm");
-const crmRecord = registry.toRecord({ domain: "crm" });
+const safeTools = registry.getByImpact("READ_ONLY");
 
 // 3. Headless metadata export for client UI
 const descriptors = registry.getDescriptors({ domain: "crm", role: "ADMIN" });
-// Returns: [{ id, name, domain, resource, roles, permissions, requireApproval, tags }]
+// Returns: [{ id, name, domain, resource, roles, impact, requireApproval, tags }]
 ```
 

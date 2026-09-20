@@ -138,6 +138,8 @@ export function createIsolatedTool<
   const toolAlias = config.alias;
   const clientCallback = config.clientDto;
   const toolIdentifier = toolAlias || config.name;
+  const toolImpact = config.impact ?? "READ_ONLY";
+  const requireApproval = config.requireApproval ?? (toolImpact === "DESTRUCTIVE");
 
   const tool: VercelAiCoreTool<TArgs, TResult> = {
     description: config.description,
@@ -150,8 +152,8 @@ export function createIsolatedTool<
     _domain: config.domain,
     _resource: config.resource,
     _roles: config.roles ? Object.freeze([...config.roles]) : undefined,
-    _permissions: config.permissions ? Object.freeze([...config.permissions]) : undefined,
-    _requireApproval: config.requireApproval ?? false,
+    _impact: toolImpact,
+    _requireApproval: requireApproval,
     _lastPiiFilteredCount: 0,
     _lastInvalidationTags: undefined,
     async execute(args: TArgs, context?: ToolExecutionContext): Promise<any> {

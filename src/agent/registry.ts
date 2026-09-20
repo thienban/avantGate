@@ -1,4 +1,4 @@
-import type { RegisteredTool, ToolDescriptor, VercelAiCoreTool } from "./types";
+import type { RegisteredTool, ToolDescriptor, ToolImpact, VercelAiCoreTool } from "./types";
 
 export interface ToRecordOptions {
   anonymize?: boolean;
@@ -8,6 +8,7 @@ export interface ToRecordOptions {
 export interface ToolDescriptorFilter {
   domain?: string;
   role?: string;
+  impact?: ToolImpact;
 }
 
 function isCoreTool(item: RegisteredTool | VercelAiCoreTool): item is VercelAiCoreTool {
@@ -24,7 +25,7 @@ function normalizeToolDefinition(toolDef: RegisteredTool | VercelAiCoreTool): Re
       domain: toolDef._domain,
       resource: toolDef._resource,
       roles: toolDef._roles ? Array.from(toolDef._roles) : undefined,
-      permissions: toolDef._permissions ? Array.from(toolDef._permissions) : undefined,
+      impact: toolDef._impact ?? "READ_ONLY",
       requireApproval: toolDef._requireApproval,
       tool: toolDef,
     };
@@ -33,8 +34,7 @@ function normalizeToolDefinition(toolDef: RegisteredTool | VercelAiCoreTool): Re
   const id = toolDef.id || toolDef.name || toolDef.tool?._toolId;
   const publicName = toolDef.alias || toolDef.name || toolDef.tool?._toolAlias || toolDef.tool?._toolName;
   const roles = toolDef.roles ?? (toolDef.tool?._roles ? Array.from(toolDef.tool._roles) : toolDef.requiredRoles);
-  const permissions =
-    toolDef.permissions ?? (toolDef.tool?._permissions ? Array.from(toolDef.tool._permissions) : undefined);
+  const impact = toolDef.impact ?? toolDef.tool?._impact ?? "READ_ONLY";
 
   return {
     ...toolDef,
@@ -44,7 +44,7 @@ function normalizeToolDefinition(toolDef: RegisteredTool | VercelAiCoreTool): Re
     domain: toolDef.domain ?? toolDef.tool?._domain,
     resource: toolDef.resource ?? toolDef.tool?._resource,
     roles,
-    permissions,
+    impact,
     requireApproval: toolDef.requireApproval ?? toolDef.tool?._requireApproval,
   };
 }
@@ -69,7 +69,7 @@ function toDescriptor(tool: RegisteredTool): ToolDescriptor {
     domain: tool.domain,
     resource: tool.resource,
     roles: tool.roles ?? tool.requiredRoles,
-    permissions: tool.permissions,
+    impact: tool.impact ?? "READ_ONLY",
     requireApproval: tool.requireApproval,
     cacheTTL: tool.tool._cacheTTL,
     tags: tool.tags,
@@ -77,7 +77,7 @@ function toDescriptor(tool: RegisteredTool): ToolDescriptor {
 }
 
 /**
- * Centralized catalog for managing and filtering tools with permissions, domains and metadata.
+ * Centralized catalog for managing and filtering tools with roles, domains, impact and metadata.
  * Supports O(1) Key-Value lookup by technical ID and by public alias.
  */
 export class ToolRegistry {
@@ -175,6 +175,13 @@ export class ToolRegistry {
   }
 
   /**
+   * Filters tools matching a specific physical impact profile (READ_ONLY, MUTATIVE, DESTRUCTIVE).
+   */
+  public getByImpact(impact: ToolImpact): RegisteredTool[] {
+    return this.getAll().filter((item) => (item.impact ?? "READ_ONLY") === impact);
+  }
+
+  /**
    * Exports headless technical descriptors without UI rendering coupling.
    */
   public getDescriptors(filter?: ToolDescriptorFilter): ToolDescriptor[] {
@@ -184,6 +191,9 @@ export class ToolRegistry {
     }
     if (filter?.role) {
       list = list.filter((item) => matchesRoleFilter(item, filter.role));
+    }
+    if (filter?.impact) {
+      list = list.filter((item) => (item.impact ?? "READ_ONLY") === filter.impact);
     }
     return list.map(toDescriptor);
   }

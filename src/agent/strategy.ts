@@ -2,9 +2,24 @@ import { ToolRegistry } from "./registry";
 import type {
   RegisteredTool,
   ToolContext,
+  ToolImpact,
   ToolSelectionStrategy,
   VercelAiCoreTool,
 } from "./types";
+
+const IMPACT_WEIGHTS: Record<ToolImpact, number> = {
+  READ_ONLY: 1,
+  MUTATIVE: 2,
+  DESTRUCTIVE: 3,
+};
+
+function matchesMaxImpact(tool: RegisteredTool, maxImpact?: ToolImpact): boolean {
+  if (!maxImpact) {
+    return true;
+  }
+  const toolImpact = tool.impact ?? "READ_ONLY";
+  return IMPACT_WEIGHTS[toolImpact] <= IMPACT_WEIGHTS[maxImpact];
+}
 
 /**
  * Strategy selecting tools that match the current workflow phase.
@@ -52,8 +67,43 @@ export class RoleBasedToolStrategy implements ToolSelectionStrategy {
   }
 }
 
+/**
+ * Strategy selecting exclusively observation/read-only tools (ideal for auditors, critics, reflection).
+ */
+export class ReadOnlyToolStrategy implements ToolSelectionStrategy {
+  public selectTools(
+    tools: RegisteredTool[],
+    _context: ToolContext
+  ): RegisteredTool[] {
+    return tools.filter((tool) => (tool.impact ?? "READ_ONLY") === "READ_ONLY");
+  }
+}
+
+/**
+ * Strategy capping maximum permitted impact level for autonomous agents.
+ */
+export class MaxImpactToolStrategy implements ToolSelectionStrategy {
+  private readonly maxImpact: ToolImpact;
+
+  constructor(maxImpact: ToolImpact) {
+    this.maxImpact = maxImpact;
+  }
+
+  public selectTools(
+    tools: RegisteredTool[],
+    _context: ToolContext
+  ): RegisteredTool[] {
+    const maxWeight = IMPACT_WEIGHTS[this.maxImpact];
+    return tools.filter((tool) => {
+      const toolImpact = tool.impact ?? "READ_ONLY";
+      return IMPACT_WEIGHTS[toolImpact] <= maxWeight;
+    });
+  }
+}
+
 export interface AccessControlToolStrategyOptions {
   allowedDomains?: string[];
+  maxImpact?: ToolImpact;
 }
 
 function matchesDomain(tool: RegisteredTool, allowedDomains?: Set<string>): boolean {
@@ -81,24 +131,18 @@ function matchesRoles(tool: RegisteredTool, context: ToolContext): boolean {
   return toolRoles.some((roleName) => userRoles.includes(roleName));
 }
 
-function matchesPermissions(tool: RegisteredTool, context: ToolContext): boolean {
-  if (!tool.permissions || tool.permissions.length === 0) {
-    return true;
-  }
-  const userPermissions = context.permissions ?? [];
-  return tool.permissions.every((permissionName) => userPermissions.includes(permissionName));
-}
-
 /**
- * Unified strategy evaluating role, permissions and allowed business domains in a single pass.
+ * Unified strategy evaluating user roles, allowed business domains and maximum impact in a single pass.
  */
 export class AccessControlToolStrategy implements ToolSelectionStrategy {
   private readonly allowedDomains?: Set<string>;
+  private readonly maxImpact?: ToolImpact;
 
   constructor(options?: AccessControlToolStrategyOptions) {
     if (options?.allowedDomains) {
       this.allowedDomains = new Set(options.allowedDomains);
     }
+    this.maxImpact = options?.maxImpact;
   }
 
   public selectTools(
@@ -109,7 +153,7 @@ export class AccessControlToolStrategy implements ToolSelectionStrategy {
       (tool) =>
         matchesDomain(tool, this.allowedDomains) &&
         matchesRoles(tool, context) &&
-        matchesPermissions(tool, context)
+        matchesMaxImpact(tool, this.maxImpact)
     );
   }
 }
