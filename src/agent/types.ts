@@ -254,6 +254,11 @@ export interface VercelAiCoreTool<TArgs = any, TResult = any> {
 }
 
 /**
+ * Isolated Tool contract returned by createIsolatedTool and asTool().
+ */
+export type IsolatedTool<TArgs = any, TResult = any> = VercelAiCoreTool<TArgs, TResult>;
+
+/**
  * Metadata and descriptor for registered tools in the registry.
  */
 export interface RegisteredTool<TArgs = any, TResult = any> {
