@@ -3,6 +3,8 @@ export { executeWorkflow } from "./engine";
 export {
   WorkflowSagaRollbackError,
   WorkflowValidationError,
+  WorkflowAbortSignal,
+  isWorkflowAbortSignal,
   type FailedCompensationRecord,
 } from "./errors";
 export type {

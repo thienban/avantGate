@@ -47,3 +47,24 @@ export class WorkflowValidationError extends Error {
   }
 }
 
+export class WorkflowAbortSignal<TPayload = unknown> extends Error {
+  readonly __isWorkflowAbort = true;
+  readonly reason: string;
+  readonly payload?: TPayload;
+
+  constructor(reason: string, payload?: TPayload) {
+    super(`Workflow aborted: ${reason}`);
+    this.name = "WorkflowAbortSignal";
+    this.reason = reason;
+    this.payload = payload;
+  }
+}
+
+export const isWorkflowAbortSignal = (value: unknown): value is WorkflowAbortSignal => {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as Record<string, unknown>).__isWorkflowAbort === true
+  );
+};
+

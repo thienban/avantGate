@@ -8,7 +8,8 @@ export type StepStatus =
   | "RUNNING"
   | "COMPLETED"
   | "FAILED"
-  | "WAITING_APPROVAL";
+  | "WAITING_APPROVAL"
+  | "ABORTED";
 
 /**
  * Token usage metrics for LLM calls and tool executions.

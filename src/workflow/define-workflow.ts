@@ -9,28 +9,28 @@ import type {
   WorkflowInstance,
 } from "./types";
 
-function resolveWorkflowImpact(config: WorkflowConfig, options?: WorkflowAsToolOptions): ToolImpact {
+const resolveWorkflowImpact = (config: WorkflowConfig, options?: WorkflowAsToolOptions): ToolImpact => {
   if (options?.impact) {
     return options.impact;
   }
   return config.impact ?? "MUTATIVE";
-}
+};
 
-function resolveRequireApproval(
+const resolveRequireApproval = (
   impact: ToolImpact,
   options?: WorkflowAsToolOptions
-): boolean {
+): boolean => {
   if (options?.requireApproval !== undefined) {
     return options.requireApproval;
   }
   // Safe Default DESIGN-015: activation automatique si DESTRUCTIVE
   return impact === "DESTRUCTIVE";
-}
+};
 
-function buildToolExecutionContext(
+const buildToolExecutionContext = (
   options?: WorkflowAsToolOptions,
   toolCtx?: ToolExecutionContext
-): WorkflowExecutionContext {
+): WorkflowExecutionContext => {
   const tenantId = typeof toolCtx?.tenantId === "string" ? toolCtx.tenantId : options?.defaultContext?.tenantId;
   const userId = typeof toolCtx?.userId === "string" ? toolCtx.userId : options?.defaultContext?.userId;
 
@@ -40,11 +40,11 @@ function buildToolExecutionContext(
     services: options?.defaultContext?.services ?? {},
     storage: options?.storage ?? options?.defaultContext?.storage,
   };
-}
+};
 
-export function defineWorkflow<TInput = any, TOutput = any>(
+export const defineWorkflow = <TInput = any, TOutput = any>(
   config: WorkflowConfig<TInput, TOutput>
-): WorkflowInstance<TInput, TOutput> {
+): WorkflowInstance<TInput, TOutput> => {
   const workflowImpact: ToolImpact = config.impact ?? "MUTATIVE";
 
   return {

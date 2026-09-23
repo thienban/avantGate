@@ -16,6 +16,7 @@ export interface WorkflowStepContext {
   readonly storage?: StepStorageAdapter;
   getStepResult<T = unknown>(stepId: string): T | undefined;
   waitForApproval<T = unknown>(options?: StepApprovalOptions<T>): Promise<T>;
+  abort<TPayload = unknown>(reason: string, payload?: TPayload): never;
 }
 
 export interface WorkflowStepConfig<TInput = any, TOutput = any> {
@@ -60,9 +61,11 @@ export interface WorkflowAsToolOptions {
 export interface WorkflowExecutionResult<TOutput = any> {
   workflowId: string;
   runId: string;
-  status: "COMPLETED" | "FAILED" | "WAITING_APPROVAL";
+  status: "COMPLETED" | "FAILED" | "WAITING_APPROVAL" | "ABORTED";
   stepResults: Record<string, any>;
   output?: TOutput;
+  abortReason?: string;
+  abortPayload?: unknown;
 }
 
 export interface WorkflowInstance<TInput = any, TOutput = any> {

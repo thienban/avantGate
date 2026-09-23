@@ -1,7 +1,9 @@
 import { StepSuspendedError } from "../agent/errors";
 import {
+  WorkflowAbortSignal,
   WorkflowSagaRollbackError,
   WorkflowValidationError,
+  isWorkflowAbortSignal,
   type FailedCompensationRecord,
 } from "./errors";
 import type {
@@ -12,27 +14,27 @@ import type {
   WorkflowStepContext,
 } from "./types";
 
-function generateRunId(workflowId: string): string {
+const generateRunId = (workflowId: string): string => {
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substring(2, 9);
   return `run_${workflowId}_${timestamp}_${randomSuffix}`;
-}
+};
 
-function validateInput<TInput>(config: WorkflowConfig<TInput, any>, input: TInput): TInput {
+const validateInput = <TInput>(config: WorkflowConfig<TInput, any>, input: TInput): TInput => {
   const parseResult = config.inputSchema.safeParse(input);
   if (!parseResult.success) {
     throw new WorkflowValidationError(config.id, parseResult.error.issues);
   }
   return parseResult.data;
-}
+};
 
-function createStepContext(params: {
+const createStepContext = (params: {
   workflowId: string;
   stepId: string;
   runId: string;
   context?: WorkflowExecutionContext;
   stepResults: Record<string, any>;
-}): WorkflowStepContext {
+}): WorkflowStepContext => {
   const { workflowId, stepId, runId, context, stepResults } = params;
 
   return {
@@ -64,10 +66,13 @@ function createStepContext(params: {
       }
       throw new StepSuspendedError(stepId, workflowId, options?.prompt);
     },
+    abort: (reason: string, payload?: unknown): never => {
+      throw new WorkflowAbortSignal(reason, payload);
+    },
   };
-}
+};
 
-async function rollbackSaga(params: {
+const rollbackSaga = async (params: {
   workflowId: string;
   failedStepId: string;
   originalError: unknown;
@@ -76,7 +81,7 @@ async function rollbackSaga(params: {
   runId: string;
   context?: WorkflowExecutionContext;
   stepResults: Record<string, any>;
-}): Promise<never> {
+}): Promise<never> => {
   const {
     workflowId,
     failedStepId,
@@ -126,17 +131,50 @@ async function rollbackSaga(params: {
     compensatedSteps,
     failedCompensations,
   });
-}
+};
 
-export async function executeWorkflow<TInput, TOutput>(
+export const executeWorkflow = async <TInput, TOutput>(
   config: WorkflowConfig<TInput, TOutput>,
   rawInput: TInput,
   context?: WorkflowExecutionContext
-): Promise<WorkflowExecutionResult<TOutput>> {
+): Promise<WorkflowExecutionResult<TOutput>> => {
   const input = validateInput(config, rawInput);
   const runId = context?.runId ?? generateRunId(config.id);
   const stepResults: Record<string, any> = {};
   const completedSteps: Array<{ step: WorkflowStepConfig; result: any }> = [];
+
+  const handleAbort = async (
+    stepId: string,
+    signal: { reason: string; payload?: unknown }
+  ): Promise<WorkflowExecutionResult<TOutput>> => {
+    stepResults[stepId] = {
+      aborted: true,
+      reason: signal.reason,
+      payload: signal.payload,
+    };
+
+    if (context?.storage) {
+      await context.storage.updateStepStatus(config.id, stepId, "ABORTED", {
+        result: signal.payload,
+        metadata: { abortReason: signal.reason },
+      });
+    }
+
+    const abortOutput = (signal.payload ?? {
+      aborted: true,
+      reason: signal.reason,
+    }) as unknown as TOutput;
+
+    return {
+      workflowId: config.id,
+      runId,
+      status: "ABORTED",
+      stepResults,
+      abortReason: signal.reason,
+      abortPayload: signal.payload,
+      output: abortOutput,
+    };
+  };
 
   for (const step of config.steps) {
     const stepCtx = createStepContext({
@@ -149,6 +187,11 @@ export async function executeWorkflow<TInput, TOutput>(
 
     try {
       const result = await step.execute(input, stepCtx);
+
+      if (isWorkflowAbortSignal(result)) {
+        return await handleAbort(step.id, result);
+      }
+
       stepResults[step.id] = result;
       completedSteps.push({ step, result });
 
@@ -163,6 +206,10 @@ export async function executeWorkflow<TInput, TOutput>(
           status: "WAITING_APPROVAL",
           stepResults,
         };
+      }
+
+      if (isWorkflowAbortSignal(error)) {
+        return await handleAbort(step.id, error);
       }
 
       await rollbackSaga({

@@ -349,6 +349,95 @@ const agentTools = safeStrategy.selectTools(registry.getAll(), {
 
 ---
 
+### 5. 🛑 Functional Business Document: Graceful Abort & Continuity (`ctx.abort()`)
+
+In high-stakes enterprise agent applications (CRM orchestration, sales prospecting pipelines, billing automation, banking onboarding), **business logic outcomes are rarely binary**. Real-world business operations demand a sharp architectural distinction between **technical crashes** and **legitimate operational short-circuits**.
+
+```mermaid
+flowchart TD
+    subgraph SAGA_FAIL["❌ Technical Crash (Unhandled Error)"]
+        A1["Step 1: Enrich Lead<br/>(COMPLETED)"] --> A2["Step 2: Check API<br/>(NETWORK TIMEOUT / 500)"]
+        A2 -.->|"Triggers Saga Rollback<br/>(Destructive Undo)"| R1["Rollback Step 1<br/>(Delete Lead Data!)"]
+        R1 --> ERR["Throw WorkflowSagaRollbackError<br/>Tool Crash in LLM Context"]
+    end
+
+    subgraph GRACEFUL_ABORT["✅ Business Short-Circuit (ctx.abort)"]
+        B1["Step 1: Enrich Lead<br/>(COMPLETED)"] --> B2["Step 2: Verify Eligibility<br/>(Prospect already subscribed / Opt-out)"]
+        B2 -->|"ctx.abort('ALREADY_SUBSCRIBED')<br/><b>ZERO Rollback</b>"| ABORT["Workflow Status: ABORTED<br/>Step 1 Remains Intact"]
+        ABORT --> AI["Transparent Payload delivered to LLM<br/>Agent proposes Upsell / Alternate offer"]
+    end
+```
+
+#### 🏛️ Functional Problem: The "Success vs Rollback" Dilemma
+
+Traditional workflow engines and Saga orchestrators operate on an all-or-nothing premise:
+1. **The step succeeds** ➔ Inconditionally proceed to the next step.
+2. **The step fails (`throw Error`)** ➔ The engine assumes a critical anomaly, halts execution, and **triggers destructive compensation handlers** ($k-1 \to 0$) across all previously completed steps.
+
+In real-world business domains (such as sales engagement with `prospectAI`), business conditions frequently fail without constituting a system crash:
+- A prospect is **not found in the CRM** or has exercised their GDPR right to be forgotten (`optOut: true`).
+- A customer **already owns the subscription tier** the agent intends to propose.
+- A lead **does not meet minimum creditworthiness or eligibility criteria**.
+
+> [!CAUTION]
+> **Why Saga Rollback is Harmful in Business Disqualifications**:
+> If Step 1 successfully verified identity or logged a compliant audit record, throwing an error at Step 2 would cause the Saga rollback to **delete or revert Step 1's valid work**. Furthermore, throwing an exception causes the AI Agent tool call to fail, preventing the LLM from conversing naturally with the user to suggest alternate remedies.
+
+---
+
+#### 💼 Three Core Business Use Cases
+
+##### Use Case 1: Automated Sales Prospecting & Follow-Up (`prospectAI`)
+A sales workflow orchestrates multi-step outreach:
+1. `lookup_prospect`: Fetch prospect profile and check CRM engagement status.
+2. `draft_personalized_email`: Generate and queue tailored sales copy.
+3. `create_crm_task`: Schedule a reminder task for the account executive.
+4. `book_calendar_hold`: Reserve a provisional slot for a discovery call.
+
+**The Business Event**: The prospect was archived or opted out of sales outreach.
+```typescript
+if (!prospect || prospect.optOut) {
+  ctx.abort("PROSPECT_NOT_ELIGIBLE", {
+    prospectId: input.prospectId,
+    reason: prospect?.optOut ? "GDPR_OPTOUT" : "NOT_FOUND",
+    message: "Le prospect est introuvable ou a refusé tout démarchage commercial.",
+    suggestedAction: "create_lead_or_update_contact",
+  });
+}
+```
+- **Business Result**: Steps 2, 3, and 4 are safely skipped. No empty email is dispatched, no ghost calendar hold is booked.
+- **Agentic Value**: The LLM receives the structured abort payload and politely informs the user: *"I could not schedule the follow-up because this contact has opted out of marketing communications. Would you like me to assign an audit task instead?"*.
+
+##### Use Case 2: Duplicate Prevention & Upsell Opportunity (Cross-Sell)
+An autonomous agent attempts to provision a "Pro" software license:
+- At Step 1 (`verify_account_tier`), the query reveals the customer **already has an active Pro subscription**.
+- Invoking `ctx.abort("ALREADY_ACTIVE_SUBSCRIPTION", { activePlan: "PRO", upgradeAvailable: "ENTERPRISE" })`:
+  - Halts license generation (Step 2) and invoice billing (Step 3).
+  - Keeps previous lookup telemetry intact.
+  - The agent smoothly pivots: *"You are already enjoying our Pro tier! Would you like me to upgrade you to Enterprise with dedicated SLAs?"*.
+
+##### Use Case 3: Preserving Irreversible Audit Logs Before Failure
+- **Step 1 (`log_compliance_audit`)**: Logs an immutable audit entry in the compliance ledger (a valid, legal requirement that must never be rolled back).
+- **Step 2 (`evaluate_risk_score`)**: Score is below the regulatory threshold.
+- With `ctx.abort("RISK_SCORE_DISQUALIFIED", { score: 520, minimum: 650 })`:
+  - Step 3 (`issue_loan_contract`) is safely bypassed.
+  - The audit record created in Step 1 **remains permanently saved in the ledger** instead of being undone by a Saga rollback.
+
+---
+
+#### 🛠️ Functional Implementation Contract
+
+1. **Guaranteed Immediate Halt (Sentinel Exception Pattern)**:
+   `ctx.abort(reason, payload)` throws an internal `WorkflowAbortSignal` sentinel error. This guarantees that execution halts **immediately on that exact line**, protecting developers from accidental bugs where subsequent lines within the same step function would execute if they omitted a `return` keyword.
+2. **Zero Saga Compensation**:
+   The engine intercepts `WorkflowAbortSignal`, marks the workflow status as `"ABORTED"`, and exits immediately. Completed steps remain untouched.
+3. **Safe Output Resolution (Anti-Crash Guard)**:
+   When aborted, the workflow output automatically adopts the abort payload (`error.payload ?? { aborted: true, reason: error.reason }`), preventing `outputDto` functions from throwing runtime `TypeError` exceptions when referencing skipped future steps.
+4. **Seamless LLM Integration via `asTool()`**:
+   When invoked through an AI agent tool, an aborted workflow completes **without throwing an exception**, delivering structured domain feedback directly into the model's reasoning loop.
+
+---
+
 ## 🛡️ Production Best Practices
 
 1. **Idempotent or Compensable Steps**: Ensure that every mutative operation (database insert/update, third-party API call) has a paired `compensate` handler.
