@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF) & privacy control plane for TypeScript: real-time prompt guardrails, zero-egress PII redaction, agent tool isolation, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
   "author": "Antigravity & LexTalk Team",
   "license": "MIT",
@@ -59,7 +59,20 @@
       "import": "./dist/workflow/index.mjs",
       "require": "./dist/workflow/index.js"
     },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.mjs",
+      "require": "./dist/client/index.js"
+    },
     "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "files": [
     "dist",
@@ -67,13 +80,14 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup src/index.ts src/finance/index.ts src/agent/index.ts src/workflow/index.ts --format cjs --format esm --clean && tsc --emitDeclarationOnly --outDir dist",
-    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && npm run test:agent && npm run test:workflow",
+    "build": "tsup src/index.ts src/finance/index.ts src/agent/index.ts src/workflow/index.ts src/client/index.ts --format cjs --format esm --clean && tsc --emitDeclarationOnly --outDir dist",
+    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && npm run test:agent && npm run test:workflow && npm run test:client",
     "test:finance": "tsx tests/financial-normalizer.test.ts",
     "test:prompts": "tsx tests/prompt-builder.test.ts",
     "test:pii": "tsx tests/pii-extended.test.ts",
     "test:agent": "tsx tests/agent/step-runner.test.ts && tsx tests/agent/isolated-tool.test.ts && tsx tests/agent/dto-pattern.test.ts && tsx tests/agent/tool-patterns.test.ts && tsx tests/agent/storage-adapters.test.ts && tsx tests/agent/tool-aliasing.test.ts && tsx tests/agent/tool-chaining.test.ts && tsx tests/agent/tool-storage.test.ts && tsx tests/agent/telemetry-exporter.test.ts && tsx tests/agent/platform-adapter.test.ts && tsx tests/agent/tool-governance.test.ts && tsx tests/agent/tool-impact.test.ts",
     "test:workflow": "tsx tests/workflow/workflow-saga.test.ts && tsx tests/workflow/workflow-abort.test.ts",
+    "test:client": "tsx tests/client/browser-exporter.test.ts",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
@@ -81,6 +95,8 @@
     "zod": "^3.23.0 || ^4.0.0"
   },
   "devDependencies": {
+    "@types/react": "^18.3.18",
+    "react": "^18.3.1",
     "tsup": "^8.3.5",
     "tsx": "^4.19.0",
     "typescript": "^5.4.0"

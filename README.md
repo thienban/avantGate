@@ -54,6 +54,7 @@ Available as a **Managed Cloud Control Plane** or an **Out-of-Process High-Avail
 - 🔀 **Zero-Downtime Multi-Model Failover**: Seamless client-side failover to fallback providers (or local zero-cost Ollama) when upstream APIs return HTTP 429/500 errors.
 - 🔧 **Self-Repairing Structured Outputs**: Strict Zod schema compliance with automated heuristic markdown/JSON repair if the model hallucinates formatting.
 - 📡 **Zero-Dependency Telemetry Bridge (`HttpTelemetryExporter`, `PlatformStorageAdapter`)**: Mirror execution audits and hierarchical tool traces asynchronously without adding heavy external dependencies.
+- 🌐 **Lightweight Front-End SDK & React Hook (`avantgate/client`)**: Micro-bundle (< 1.7 KB gzipped) for browser UIs. Captures client-side security alerts (blocked API keys, prompt injection attempts), UI render metrics, and user feedback, streaming them directly to gateWall via `fetch(keepalive)` without loading backend infrastructure.
 - 📦 **100% Framework Agnostic**: Works seamlessly in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
 
 ---
