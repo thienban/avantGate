@@ -17,6 +17,7 @@ Comprehensive code snippets and integration patterns for AvantGate.
 9. [Unified `generateStructuredOutput`](#9-unified-generatestructuredoutput)
 10. [Durable Agent Harness & Tool Isolation (`avantgate/agent`)](#10-durable-agent-harness--tool-isolation)
 11. [Streaming Telemetry to an External Sink](#11-streaming-telemetry-to-an-external-sink)
+12. [Connecting an Agent to GateWall Cockpit (`gatewall`)](#12-connecting-an-agent-to-gatewall-cockpit-gatewall)
 
 ---
 
@@ -439,3 +440,99 @@ const runner = createStepRunner({
   storage,
 });
 ```
+
+---
+
+### 12. Connecting an Agent to GateWall Cockpit (`gatewall`)
+
+Send real-time telemetry, tool execution audits, and Human-in-the-Loop checkpoints directly to the self-hosted **GateWall Cockpit** (`gatewall/`).
+
+#### Option A: Using AvantGate Native `HttpTelemetryExporter` (`avantgate/agent`)
+
+```typescript
+import { HttpTelemetryExporter, PlatformStorageAdapter, SQLiteStorageAdapter, createStepRunner } from "avantgate/agent";
+import Database from "better-sqlite3";
+
+// 1. Initialize HTTP Telemetry Exporter configured for your local GateWall instance
+const exporter = new HttpTelemetryExporter({
+  endpoint: "http://localhost:3000/api/v1/ingest/events",
+  apiKey: "gw_live_dev_test_key_123456789",
+  agentName: "prospect-qualifier",
+  batchIntervalMs: 2000,
+});
+
+// 2. Wrap local storage with remote mirroring to GateWall Cockpit
+const storage = new PlatformStorageAdapter({
+  primaryStorage: new SQLiteStorageAdapter(new Database("agent-local.db")),
+  exporter,
+});
+
+// 3. Run durable agent steps (automatically streamed to http://localhost:3000)
+const runner = createStepRunner({
+  workflowId: "outreach-campaign-2026",
+  runId: "run-prospect-ai-101",
+  storage,
+});
+```
+
+#### Option B: Direct HTTP Ingestion API
+
+Integrate any custom agent framework (LangChain, LlamaIndex, Vercel AI SDK, Python) with GateWall via standard HTTP POST:
+
+```typescript
+// Send tool execution telemetry to GateWall Ingest API
+await fetch("http://localhost:3000/api/v1/ingest/events", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: "Bearer gw_live_dev_test_key_123456789",
+  },
+  body: JSON.stringify({
+    runId: "run-agent-101",
+    agentName: "sales-assistant",
+    timestamp: new Date().toISOString(),
+    events: [
+      {
+        type: "TOOL_EXECUTION",
+        toolId: "crm_lookup",
+        toolName: "searchCRM",
+        durationMs: 320,
+        piiFilteredCount: 2,
+        rawPayload: { email: "ceo@acme.com", phone: "+33612345678" },
+        llmSummary: { leadScore: 85, company: "Acme Corp" },
+        costUsd: 0.00008,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  }),
+});
+```
+
+#### Option C: Front-End Browser Streaming (`avantgate/client`)
+
+Capture browser-side security events and render metrics with zero backend overhead:
+
+```tsx
+import React from "react";
+import { useAvantGateTelemetry } from "avantgate/client";
+
+export const AgentChatWidget = () => {
+  const { emitEvent, emitUserFeedback } = useAvantGateTelemetry({
+    endpoint: "http://localhost:3000/api/v1/ingest/events",
+    apiKey: "gw_live_dev_test_key_123456789",
+    runId: "session-client-456",
+  });
+
+  const handleFeedback = (thumbsUp: boolean) => {
+    emitUserFeedback({ score: thumbsUp ? 1 : 0, comment: "Accurate response" });
+  };
+
+  return (
+    <div>
+      <button onClick={() => handleFeedback(true)}>👍 Helpful</button>
+      <button onClick={() => handleFeedback(false)}>👎 Inaccurate</button>
+    </div>
+  );
+};
+```
+

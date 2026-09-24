@@ -33,13 +33,54 @@ flowchart LR
 
 ---
 
-## ☁️ GateWall Platform — Enterprise AI-WAF & Corporate DLP *(Coming Soon)*
+## 🖥️ GateWall Cockpit — Self-Hosted AI-WAF & Governance Console (`gatewall/`)
 
-While the open-source **AvantGate SDK** provides lightweight, in-process control and PII redaction, **GateWall Platform** is the enterprise AI Application Firewall (AI-WAF) and Corporate DLP gateway engineered for regulated industries (Fintech, Banking, Legaltech, and Listed Scale-ups).
+While the **AvantGate SDK** provides zero-infrastructure, in-process control inside your application runtime, the included **GateWall Cockpit** (`gatewall/`) provides a full-featured, self-hosted visual control plane, real-time audit inspector, and Human-in-the-Loop approval.
 
-Available as a **Managed Cloud Control Plane** or an **Out-of-Process High-Availability Sidecar/Proxy**:
+```mermaid
+flowchart LR
+    Agent[🤖 AvantGate Agent / SDK] -- "POST /api/v1/ingest/events<br/>(Async Telemetry)" --> GateWall["🛡️ GateWall Cockpit<br/>(Next.js + SQLite)"]
+    GateWall -- "SSE /api/v1/realtime" --> Browser["💻 Web Dashboard<br/>(http://localhost:3000)"]
+    Browser -- "POST /api/v1/approvals<br/>(Approve / Reject)" --> GateWall
+```
 
-> 🚀 **Interested in private preview, enterprise VPC, or On-Premise deployment?** Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for early access.
+### 🚀 Quickstart: Run GateWall Cockpit
+
+#### Option 1: One-Line Docker Compose (Recommended)
+```bash
+docker compose up -d
+# or: npm run gatewall:docker
+```
+Open **`http://localhost:3000`** in your browser 🎉. Traces and audit sessions are automatically persisted.
+
+#### Option 2: Run with Bun or Node.js
+```bash
+cd gatewall
+bun install   # or npm install
+bun run dev   # or npm run dev
+```
+
+---
+
+### 🛡️ Cockpit Capabilities & Modules
+
+| Module | Description |
+|---|---|
+| **🔒 Dual-Channel PII Inspector** | Visually compare the sequestered local escrow (`rawPayload`) against the redacted summary dispatched to the model (`llmSummary`). Highlights detected PII (emails, API keys, IBANs, phone numbers). |
+| **🧑‍⚖️ Human-in-the-Loop (HITL) Queue** | Real-time queue intercepting high-impact tool executions (`WAITING_APPROVAL`) with an interactive dashboard to inspect parameters and click **Approve** or **Reject**. |
+| **⚡ Real-Time Streaming (SSE)** | Low-latency Server-Sent Events (`/api/v1/realtime`) updating session trees, metrics, and alerts dynamically without manual page refresh. |
+| **💰 FinOps & Token Tracking** | Automated token cost estimation and USD burn tracking across providers (GPT-4o, Claude 3.5 Sonnet, DeepSeek, etc.). |
+| **🛡️ Loop Shield (Anti-Cycle Guard)** | Early visual detection of recursive agent loops and aberrant repetitive tool execution cycles. |
+| **💾 Zero-External-DB SQLite Storage** | Zero setup overhead: persistent storage uses embedded SQLite (`gatewall/data/gatewall.db`) without requiring PostgreSQL, Redis, or ClickHouse. |
+
+> 💡 **Agent Integration Recipes:** See [Connecting an Agent to GateWall Cockpit](docs/examples.md#12-connecting-an-agent-to-gatewall-cockpit-gatewall) in `docs/examples.md` for complete code recipes using `HttpTelemetryExporter` (`avantgate/agent`), direct HTTP ingestion, and React front-end streaming (`avantgate/client`).
+
+---
+
+### ☁️ Enterprise & Managed Cloud
+
+Looking for enterprise multi-tenant RBAC, SSO/SAML, managed VPC sidecars, or on-premise air-gapped compliance?  
+Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for private previews and enterprise deployment options.
 
 ---
 
@@ -94,6 +135,7 @@ yarn add avantgate zod
 | `avantgate/finance` | Financial data normalizer (accounting parentheses, EU/US/UK/CH currencies & magnitudes). |
 | `avantgate/agent` | *(Preview / Experimental)* Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation & storage adapters. |
 | `avantgate/workflow` | Deterministic sequential state machine, automatic reverse Saga rollback, durable HITL checkpoints & agent tool conversion. |
+| `avantgate/client` | Lightweight front-end SDK (< 1.7 KB) & React hook to stream browser security alerts & metrics directly to GateWall. |
 
 ---
 

@@ -1,11 +1,12 @@
 {
   "name": "avantgate",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF) & privacy control plane for TypeScript: real-time prompt guardrails, zero-egress PII redaction, agent tool isolation, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
-  "author": "Antigravity & LexTalk Team",
+  "author": "Gatewall Team",
   "license": "MIT",
   "keywords": [
     "avantgate",
+    "gatewall",
     "ai-waf",
     "guardrails",
     "prompt-injection",
@@ -88,6 +89,12 @@
     "test:agent": "tsx tests/agent/step-runner.test.ts && tsx tests/agent/isolated-tool.test.ts && tsx tests/agent/dto-pattern.test.ts && tsx tests/agent/tool-patterns.test.ts && tsx tests/agent/storage-adapters.test.ts && tsx tests/agent/tool-aliasing.test.ts && tsx tests/agent/tool-chaining.test.ts && tsx tests/agent/tool-storage.test.ts && tsx tests/agent/telemetry-exporter.test.ts && tsx tests/agent/platform-adapter.test.ts && tsx tests/agent/tool-governance.test.ts && tsx tests/agent/tool-impact.test.ts",
     "test:workflow": "tsx tests/workflow/workflow-saga.test.ts && tsx tests/workflow/workflow-abort.test.ts",
     "test:client": "tsx tests/client/browser-exporter.test.ts",
+    "test:demo": "tsx tests/agent/prospect-ai-demo-scenario.test.ts",
+    "gatewall": "npm --prefix gatewall run dev",
+    "gatewall:dev": "npm --prefix gatewall run dev",
+    "gatewall:build": "npm --prefix gatewall run build",
+    "gatewall:start": "npm --prefix gatewall run start",
+    "gatewall:docker": "docker compose up -d",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
@@ -103,5 +110,13 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thienban/avantGate.git"
+  },
+  "homepage": "https://github.com/thienban/avantGate#readme",
+  "bugs": {
+    "url": "https://github.com/thienban/avantGate/issues"
   }
 }

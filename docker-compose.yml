@@ -1,0 +1,24 @@
+services:
+  gatewall:
+    build:
+      context: ./gatewall
+      dockerfile: Dockerfile
+    container_name: avantgate-gatewall
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - GATEWALL_SQLITE_PATH=/app/data/gatewall.db
+    volumes:
+      - gatewall_sqlite_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/api/v1/sessions || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  gatewall_sqlite_data:
+    driver: local

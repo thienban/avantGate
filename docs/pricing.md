@@ -1,19 +1,61 @@
-# 💰 Complete Pricing & FinOps Guide (`avantgate`)
+# 💰 Complete Pricing & FinOps Architecture Guide (`avantgate` & `gatewall`)
 
-> **Monitor, audit, and cap your LLM spend in real time without stale prices or invented estimates.**
+> **Monitor, audit, and cap your LLM spend in real time without stale prices, proxy latency, or invented estimates.**
 
 ---
 
 ## 🎯 Philosophy: "Strict & Truthful" (Zero Hardcoded Guesswork)
 
-Unlike passive proxies that hardcode pricing snapshots from months ago:
-- **AvantGate starts with an empty pricing registry by default**.
-- **No fake or approximate costs**: If a model has no configured price, its tracked cost is `$0.00` (while token consumption is still recorded with 100% precision).
-- **Pre-flight financial safety**: When enabling spend caps (`maxCostUSD: 0.01`), AvantGate strictly requires that model pricing is declared so it can block requests before any billable network call.
+Unlike passive proxies that hardcode outdated pricing snapshots from months ago:
+- **AvantGate starts with an empty pricing registry by default**: No fake or approximate costs. If a model has no configured price, its tracked cost is `$0.00` (while token consumption is still recorded with 100% precision).
+- **Pre-flight financial safety**: When enabling spend caps (`maxCostUSD: 0.01`), AvantGate strictly requires that model pricing is declared so it can block abusive requests before making any billable network call.
+- **Strict Source Priority**: When telemetry is streamed to the GateWall cockpit, cost calculated at source by the agent SDK is preserved with 100% fidelity. GateWall only computes a fallback estimate if an uninstrumented caller omits `costUsd`.
 
 ---
 
-## 🛠️ The 4 Configuration Methods
+## 🏗️ End-to-End FinOps Architecture: AvantGate vs. GateWall
+
+In an autonomous AI agent architecture, financial cost estimation occurs at **two distinct stages in the request lifecycle**:
+
+1. **At the source (Client in-process with `avantgate`)**: for **active defense** and pre-flight spending protection (*Pre-Flight Budget Guard*).
+2. **At ingestion (GateWall Cockpit)**: for **audit consolidation**, FinOps reporting, and graceful support for third-party uninstrumented agents.
+
+```mermaid
+flowchart TD
+    subgraph Client ["Client Runtime (Agent / avantgate)"]
+        Req[Agent Request] --> Guard["🛡️ Ingress & Pre-Flight Guard<br/>maxCostUSD"]
+        Guard -- Budget OK --> LLMCall["🤖 Provider LLM Call"]
+        LLMCall --> SourceCost["💰 avantgate/src/pricing.ts<br/>Exact source cost + Prompt Cache discount"]
+        SourceCost --> EventGen["📦 Build Telemetry Payload<br/>usage.costUsd = 0.00012"]
+    end
+
+    subgraph Platform ["GateWall Cockpit (/api/v1/ingest/events)"]
+        EventGen --> Ingest{"Is payload.usage.costUsd<br/>defined?"}
+        Ingest -- "YES (AvantGate Agent)" --> Direct["✅ Primary Source Cost<br/>(100% faithful to execution)"]
+        Ingest -- "NO (Third-party / LangChain / curl)" --> Fallback["⚙️ fallback-cost-calculator.ts<br/>calculateFallbackTokenCost()"]
+        Direct --> SessionStore["💾 Persist Session Run<br/>SQLite + FinOps Dashboard"]
+        Fallback --> SessionStore
+    end
+```
+
+### Resolution Rule (Strict Source Priority)
+
+In the GateWall ingestion pipeline ([telemetry-store.ts](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/gatewall/lib/storage/telemetry-store.ts)):
+
+```typescript
+const costUsd =
+  payload.usage?.costUsd !== undefined
+    ? payload.usage.costUsd
+    : calculateFallbackTokenCost(modelName, promptTokens, completionTokens);
+```
+
+1. **If `costUsd` is provided** (standard behavior with `avantgate` SDK): the source value is preserved intact. No recalculation occurs.
+2. **If `costUsd` equals `0.0`** (e.g., local Ollama models): the zero cost is strictly preserved thanks to the `!== undefined` guard.
+3. **If `costUsd` is absent**: GateWall computes a server-side fallback estimate via `calculateFallbackTokenCost`.
+
+---
+
+## 🛠️ The 4 Configuration Methods in `avantgate`
 
 ```mermaid
 flowchart TD
@@ -27,8 +69,6 @@ flowchart TD
     P4 -- Yes --> UseP4[Globally registered price]
     P4 -- No --> Zero[Cost = $0.00 / maxCostUSD Rejection]
 ```
-
----
 
 ### Method 1: Direct Declaration in Provider (Fastest)
 
@@ -88,8 +128,8 @@ const control = createAvantGate({
 
 ### Method 3: Database Connection (`PricingAdapter` with RAM Cache)
 
-This is **the recommended production architecture for multi-tenant SaaS applications (e.g. LexTalk)**.  
-Your model pricing is stored in a SQL database (PostgreSQL, MySQL, SQLite) and managed via your internal admin dashboard.
+This is **the recommended production architecture for multi-tenant SaaS applications**.  
+Model pricing is stored in a SQL database (PostgreSQL, MySQL, SQLite) and managed via your internal admin dashboard.
 
 #### A. Recommended Prisma Schema
 
@@ -161,7 +201,7 @@ export async function updateModelPrice(distributor: string, model: string, newPr
 
 ### Method 4: Decoupled Global Registry (`PricingRegistry`)
 
-You can also configure prices once at application bootstrap:
+Configure prices once at application bootstrap:
 
 ```typescript
 import { PricingRegistry } from "avantgate";
@@ -183,7 +223,7 @@ PricingRegistry.registerDistributorPrices("openrouter", {
 
 ## 📦 Reference Seed Dataset (`SEED_MODEL_PRICES`)
 
-If you are initializing a new project and looking for a baseline catalog to seed your database, AvantGate exports `SEED_MODEL_PRICES`:
+AvantGate exports a starter catalog `SEED_MODEL_PRICES` to seed databases or bootstrap local testing:
 
 ```typescript
 import { SEED_MODEL_PRICES, PricingRegistry } from "avantgate";
@@ -213,7 +253,7 @@ async function seedPrices() {
 
 ## 🛡️ Pre-Flight Budget Guard Mechanics (`maxCostUSD`)
 
-When you specify `maxCostUSD`:
+When configuring spend limits:
 
 ```typescript
 const control = createAvantGate({
@@ -228,6 +268,43 @@ const control = createAvantGate({
 ```
 
 AvantGate enforces a two-stage check:
-1. **Pre-Flight Validation**: Estimates the minimum expected input cost (`promptTokens * promptUSDPerMillion / 1_000_000`). If this initial input cost exceeds `maxCostUSD`, the request is **rejected instantly with a `BudgetExceededError` before making any network call**.
+1. **Pre-Flight Validation**: Estimates the minimum expected input cost (`promptTokens * promptUSDPerMillion / 1_000_000`). If this initial input cost exceeds `maxCostUSD`, the request is **rejected instantly with a `BudgetExceededError` before making any billable network call**.
 2. **Post-Execution Validation**: After receiving the completion, validates that total actual cost respects the limit.
 3. **Truth Requirement**: If `maxCostUSD` is enabled on a paid model without any registered price, AvantGate throws an explicit `ConfigurationError` rather than guessing a random price.
+
+---
+
+## 🖥️ GateWall Fallback Estimator & Reference Table
+
+When events arrive at GateWall without `costUsd` (e.g. from LangChain, curl, or uninstrumented callers), GateWall applies its built-in fallback table ([fallback-cost-calculator.ts](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/gatewall/lib/finops/fallback-cost-calculator.ts)):
+
+| Family | Model | Prompt Cost (per 1M tokens) | Completion Cost (per 1M tokens) |
+| :--- | :--- | :--- | :--- |
+| **OpenAI** | `gpt-4o` | $2.50 | $10.00 |
+| | `gpt-4o-mini` | $0.15 | $0.60 |
+| | `gpt-4-turbo` | $10.00 | $30.00 |
+| **Anthropic** | `claude-3-5-sonnet-20241022` | $3.00 | $15.00 |
+| | `claude-3-5-haiku` | $0.80 | $4.00 |
+| | `claude-3-opus` | $15.00 | $75.00 |
+| **Google** | `gemini-1.5-pro` | $1.25 | $5.00 |
+| | `gemini-1.5-flash` | $0.075 | $0.30 |
+| | `gemini-2.0-flash` | $0.10 | $0.40 |
+| **DeepSeek** | `deepseek-chat` | $0.14 | $0.28 |
+| | `deepseek-reasoner` | $0.55 | $2.19 |
+| **Local** | `ollama` | $0.00 | $0.00 |
+
+*If an unknown model is received without `costUsd`, GateWall applies a conservative fallback of `$0.20` prompt / `$0.80` completion per 1M tokens.*
+
+---
+
+## 📊 Comparison Matrix: AvantGate SDK vs. GateWall Cockpit
+
+| Feature | AvantGate SDK (`src/pricing.ts`) | GateWall Platform (`fallback-cost-calculator.ts`) |
+| :--- | :--- | :--- |
+| **Execution Environment** | In-Process (Agent Runtime) | Server / Observability Cockpit |
+| **Evaluation Timing** | **Before & During** LLM invocation | **After** receiving telemetry ingestion payload |
+| **Primary Objective** | Pre-flight budget blocking (`maxCostUSD`) | Observability, auditing & FinOps analytics |
+| **Prompt Cache Awareness** | ✅ Yes (`cacheHitUSDPerMillion`) | ❌ No (proportional linear calculation) |
+| **Pricing Source** | Runtime config, DB adapter, or global registry | Built-in fallback table (`FALLBACK_MODEL_PRICING_TABLE`) |
+| **Bundled Models** | DeepSeek, Mistral, OpenAI, OpenRouter, Ollama | GPT-4o, Claude 3.5, Gemini 1.5/2.0, DeepSeek, Ollama |
+| **Unknown Model Default** | `$0.00` (strict principle: never invent costs) | `$0.20 / $0.80` per 1M tokens (conservative fallback) |

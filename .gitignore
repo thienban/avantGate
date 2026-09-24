@@ -51,3 +51,10 @@ Thumbs.db
 .cache/
 .tsup/
 .turbo/
+
+# Next.js & Gatewall local data
+.next/
+gatewall/.next/
+gatewall/data/
+*.db
+*.db-journal
