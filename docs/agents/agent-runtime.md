@@ -599,26 +599,36 @@ export const deleteProspectTool = createIsolatedTool({
   name: "delete_prospect",
   domain: "crm",                  // 🏢 Business domain
   resource: "prospects",          // 📦 Specific entity
-  roles: ["ADMIN"],               // 👥 Authorized user roles (IAM)
+  roles: ["ADMIN"],               // 👥 Native RBAC: verified against context.roles before execute()
   impact: "DESTRUCTIVE",          // 🛡️ Physical impact: "READ_ONLY" | "MUTATIVE" | "DESTRUCTIVE"
   requireApproval: true,          // ✋ Safe default: auto-enabled for DESTRUCTIVE tools
 
-  // 🛡️ Pre-execution data security guard (anti-IDOR)
-  async dataAccessGuard(args, context) {
-    return args.tenantId === (context?.tenantId as string);
-  },
+  // 🛡️ Anti-IDOR Fail-Safe: Asserts that the deleted/retrieved entity belongs to the session tenant
+  assertTenant: (record) => record.tenantId,
 
   // 🏷️ Universal cache invalidation tags (Next.js revalidateTag or TanStack Query)
   invalidationTags: (args) => ["crm:prospects", `crm:prospects:${args.id}`],
 
-  parameters: z.object({ id: z.string(), tenantId: z.string() }),
-  async execute(args) {
-    return await db.prospects.delete({ where: { id: args.id } });
+  // 🚫 Parameters: Never ask the model for tenantId. It is resolved securely via server context!
+  parameters: z.object({ id: z.string() }),
+  async execute(args, context) {
+    // 🛡️ Defense-in-depth: Scoped database query using session tenant
+    return await db.prospects.delete({
+      where: {
+        id: args.id,
+        tenantId: context?.tenantId,
+      },
+    });
   },
 });
 ```
 
-If `dataAccessGuard` returns `false`, execution immediately raises a `ToolAccessDeniedError`.
+### Anti-IDOR Post-Fetch & Ownership Assertions
+AvantGate provides dual-layer Anti-IDOR defense:
+1. **`assertTenant: (result) => result.tenantId`** : Synchronous guard asserting that the retrieved entity matches `context.tenantId`. If a cross-tenant collision or query leakage occurs, AvantGate immediately throws `ToolAccessDeniedError` before data reaches `llmDto` or `clientDto`.
+2. **`assertOwnership: async (result, context) => boolean | Promise<boolean>`** : Universal predicate for complex data models, indirect ownership (e.g. `result.customer.tenantId`), or B2C user-scoped access (`result.userId === context.userId`).
+3. **`createTenantTool(config)` (Compile-Time Enforcement)** : High-assurance factory that strictly requires either `assertTenant` or `assertOwnership` at TypeScript compile-time. If neither is provided, TypeScript refuses compilation.
+4. **Native RBAC** : When `roles` is declared on an isolated tool, execution is automatically restricted to callers providing matching `context.roles` or `context.role`.
 
 ### B. Cognitive Confinement & Unified Strategy (`AccessControlToolStrategy`)
 

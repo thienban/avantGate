@@ -133,6 +133,10 @@ export interface StepRunnerConfig {
  * Context received by tool execution, supporting inter-tool chaining and shared state.
  */
 export interface ToolExecutionContext {
+  tenantId?: string;
+  userId?: string;
+  role?: string;
+  roles?: string[];
   toolCallId?: string;
   messages?: unknown[];
   abortSignal?: AbortSignal;
@@ -219,6 +223,11 @@ export interface IsolatedToolConfig<
   impact?: ToolImpact;
   requireApproval?: boolean;
   dataAccessGuard?: DataAccessGuard<TArgs>;
+  assertTenant?: (result: TResult) => string | undefined | null;
+  assertOwnership?: (
+    result: TResult,
+    context: ToolExecutionContext
+  ) => boolean | Promise<boolean>;
   invalidationTags?: InvalidationTagsResolver<TArgs, TResult>;
   parameters: z.ZodType<TArgs> | unknown;
   cacheTTL?: number;
@@ -229,6 +238,31 @@ export interface IsolatedToolConfig<
   sanitizePii?: boolean;
   throwOnPii?: boolean;
 }
+
+/**
+ * Configuration for createTenantTool requiring either assertTenant or assertOwnership at compile-time.
+ */
+export type TenantToolConfig<
+  TArgs = any,
+  TResult = any,
+  TLLMDto = unknown,
+  TClientDto = TResult
+> = IsolatedToolConfig<TArgs, TResult, TLLMDto, TClientDto> & (
+  | {
+      assertTenant: (result: TResult) => string | undefined | null;
+      assertOwnership?: (
+        result: TResult,
+        context: ToolExecutionContext
+      ) => boolean | Promise<boolean>;
+    }
+  | {
+      assertTenant?: (result: TResult) => string | undefined | null;
+      assertOwnership: (
+        result: TResult,
+        context: ToolExecutionContext
+      ) => boolean | Promise<boolean>;
+    }
+);
 
 /**
  * Standard tool contract compatible with Vercel AI SDK (ai) tool definition.

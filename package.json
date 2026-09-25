@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF) & privacy control plane for TypeScript: real-time prompt guardrails, zero-egress PII redaction, agent tool isolation, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
   "author": "Gatewall Team",
   "license": "MIT",

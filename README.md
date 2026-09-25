@@ -90,13 +90,27 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 - 🔒 **Zero-Egress Data Loss Prevention (DLP)**: Automated local redaction of emails, phone numbers, IBAN/BIC, and French/EU identifiers (NIR SSN, SPI tax ID) before network egress.
 - ⚡ **Deterministic Workflow Engine (`avantgate/workflow`)**: In-process sequential state machine for multi-step agent orchestrations. Features automatic reverse compensation (Saga Pattern), non-blocking Human-in-the-Loop checkpoints, and safe-by-default AI tool conversion (`asTool()`).
 - 🎭 **Dual-Channel Tool Isolation (`avantgate/agent`)**: Decouples sensitive database records (streamed out-of-band directly to client UIs) from minimal cognitive LLM context (`llmDto`), keeping confidential fields out of context windows.
-- 🛑 **Anti-IDOR & Access Governance**: Enforces Row-Level Security (`dataAccessGuard`), business domain partitioning, and granular role-based permissions at the agent tool boundary.
+- 🛑 **Anti-IDOR & Multi-Tenant Defense**: Strict Row-Level Security, compile-time tenant tool enforcement (`createTenantTool`), post-fetch runtime assertions (`assertTenant`, `assertOwnership`), and native RBAC authorization at the agent tool boundary. See the [Anti-IDOR Architecture Guide](docs/anti-idor.md).
 - 💰 **Denial-of-Wallet & Pre-Flight Budgeting**: Enforces strict token and cent-level USD budget limits, rejecting abusive requests before paying for upstream inference.
 - 🔀 **Zero-Downtime Multi-Model Failover**: Seamless client-side failover to fallback providers (or local zero-cost Ollama) when upstream APIs return HTTP 429/500 errors.
 - 🔧 **Self-Repairing Structured Outputs**: Strict Zod schema compliance with automated heuristic markdown/JSON repair if the model hallucinates formatting.
 - 📡 **Zero-Dependency Telemetry Bridge (`HttpTelemetryExporter`, `PlatformStorageAdapter`)**: Mirror execution audits and hierarchical tool traces asynchronously without adding heavy external dependencies.
 - 🌐 **Lightweight Front-End SDK & React Hook (`avantgate/client`)**: Micro-bundle (< 1.7 KB gzipped) for browser UIs. Captures client-side security alerts (blocked API keys, prompt injection attempts), UI render metrics, and user feedback, streaming them directly to gateWall via `fetch(keepalive)` without loading backend infrastructure.
 - 📦 **100% Framework Agnostic**: Works seamlessly in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
+
+---
+
+## 📚 Documentation & Guides
+
+| Category | In-Depth Guides |
+|---|---|
+| 🚀 **Quickstart** | [Getting Started](docs/getting-started.md) • [Integration Cookbook](docs/examples.md) |
+| 🛡️ **Security & AI-WAF** | [Prompt Guardrails](docs/security/prompt-guardrails.md) • [PII Redaction](docs/security/pii-redaction.md) • [Anti-IDOR Defense](docs/security/anti-idor.md) • [End-to-End Security](docs/security/end-to-end-security.md) |
+| 💰 **FinOps & Cost** | [Pre-Flight Budget Guards](docs/finops/budget-guards.md) • [Pricing Adapters & SQLite](docs/finops/pricing-adapters.md) |
+| 🤖 **Agents & Tools** | [Isolated Tools & DTOs](docs/agents/isolated-tools.md) • [Agent Runtime Manual](docs/agents/agent-runtime.md) • [Inter-Tool Chaining](docs/agents/inter-tool-chaining.md) |
+| 🔄 **Deterministic Sagas** | [Durable Workflows Engine](docs/workflows/durable-workflows.md) |
+| 📊 **Observability** | [GateWall Cockpit Console](docs/observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) |
+| 💶 **Accounting** | [Financial Normalizer](docs/finance/normalizer.md) |
 
 ---
 

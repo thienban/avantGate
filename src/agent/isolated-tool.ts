@@ -2,16 +2,38 @@ import { DtoValidationError, ToolAccessDeniedError } from "./errors";
 import { auditToolResult } from "./guardrails";
 import type {
   IsolatedToolConfig,
+  TenantToolConfig,
   ToolExecutionContext,
   VercelAiCoreTool,
 } from "./types";
 
-async function verifyDataAccessGuard<TArgs>(
+const verifyRoles = (
+  configuredRoles: readonly string[] | string[] | undefined,
+  context: ToolExecutionContext,
+  toolIdentifier: string
+): void => {
+  if (!configuredRoles || configuredRoles.length === 0) {
+    return;
+  }
+  const userRoles: string[] = [
+    ...(context.roles ?? []),
+    ...(context.role ? [context.role] : []),
+  ];
+  const hasAllowedRole = configuredRoles.some((role) => userRoles.includes(role));
+  if (!hasAllowedRole) {
+    throw new ToolAccessDeniedError(
+      toolIdentifier,
+      "Access denied: insufficient role permissions"
+    );
+  }
+};
+
+const verifyDataAccessGuard = async <TArgs>(
   guard: ((args: TArgs, context?: ToolExecutionContext) => boolean | Promise<boolean>) | undefined,
   args: TArgs,
   context: ToolExecutionContext,
   toolIdentifier: string
-): Promise<void> {
+): Promise<void> => {
   if (!guard) {
     return;
   }
@@ -19,14 +41,78 @@ async function verifyDataAccessGuard<TArgs>(
   if (!isAllowed) {
     throw new ToolAccessDeniedError(toolIdentifier, "Access denied by data access guard");
   }
-}
+};
 
-async function resolveInvalidationTags<TArgs, TResult>(
+const verifyTenantIsolation = <TResult>(
+  assertTenant: ((result: TResult) => string | undefined | null) | undefined,
+  rawResult: TResult,
+  context: ToolExecutionContext,
+  toolIdentifier: string
+): void => {
+  if (!assertTenant) {
+    return;
+  }
+  if (!context.tenantId) {
+    throw new ToolAccessDeniedError(
+      toolIdentifier,
+      "Access denied: missing session tenantId in execution context for multi-tenant tool"
+    );
+  }
+  const recordTenantId = assertTenant(rawResult);
+  if (recordTenantId && recordTenantId !== context.tenantId) {
+    throw new ToolAccessDeniedError(
+      toolIdentifier,
+      `Cross-tenant IDOR access violation: record tenant '${recordTenantId}' does not match session tenant '${context.tenantId}'`
+    );
+  }
+};
+
+const verifyResourceOwnership = async <TResult>(
+  assertOwnership: ((result: TResult, context: ToolExecutionContext) => boolean | Promise<boolean>) | undefined,
+  rawResult: TResult,
+  context: ToolExecutionContext,
+  toolIdentifier: string
+): Promise<void> => {
+  if (!assertOwnership) {
+    return;
+  }
+  const isOwner = await assertOwnership(rawResult, context);
+  if (!isOwner) {
+    throw new ToolAccessDeniedError(
+      toolIdentifier,
+      "Ownership IDOR access violation: user does not own or have access to this resource"
+    );
+  }
+};
+
+const checkSuspiciousParameters = (
+  parameters: unknown,
+  toolName: string
+): void => {
+  if (!parameters || typeof parameters !== "object") {
+    return;
+  }
+  const zodShape = (parameters as { shape?: Record<string, unknown> }).shape;
+  if (!zodShape || typeof zodShape !== "object") {
+    return;
+  }
+  const suspiciousKeys = ["tenantId", "tenant_id", "ownerTenantId"];
+  for (const key of suspiciousKeys) {
+    if (key in zodShape) {
+      console.warn(
+        `[avantGate Security Warning] Tool '${toolName}' defines '${key}' as a model parameter. ` +
+        `Tenancy should be inferred from the trusted server context (context.tenantId) rather than supplied by the untrusted model to prevent IDOR attacks.`
+      );
+    }
+  }
+};
+
+const resolveInvalidationTags = async <TArgs, TResult>(
   config: IsolatedToolConfig<TArgs, TResult, any, any>,
   args: TArgs,
   rawResult: TResult,
   context?: ToolExecutionContext
-): Promise<string[] | undefined> {
+): Promise<string[] | undefined> => {
   if (!config.invalidationTags) {
     return undefined;
   }
@@ -39,56 +125,52 @@ async function resolveInvalidationTags<TArgs, TResult>(
     await context.onInvalidationTags(tags);
   }
   return tags;
-}
+};
 
-async function dispatchClientData(
+const dispatchClientData = async (
   rawResult: unknown,
   callback?: (data: any) => void | Promise<void>
-): Promise<void> {
+): Promise<void> => {
   if (!callback) {
     return;
   }
   await callback(rawResult);
-}
+};
 
-async function produceLlmPayload<TArgs, TResult>(
+const produceLlmPayload = async <TArgs, TResult>(
   rawResult: TResult,
   args: TArgs,
   context?: ToolExecutionContext,
   transformer?: (result: TResult, args: TArgs, context?: ToolExecutionContext) => unknown
-): Promise<unknown> {
+): Promise<unknown> => {
   if (transformer) {
     return await transformer(rawResult, args, context);
   }
   return rawResult;
-}
+};
 
-function validateLlmDto(
+const validateLlmDto = (
   payload: unknown,
   schema: any,
   toolIdentifier: string
-): unknown {
+): unknown => {
   const parseResult = schema.safeParse(payload);
   if (!parseResult.success) {
     const issues = parseResult.error.issues ?? [];
     const errorMessages = issues
       .map((issue: any) => `${issue.path.join(".") || "root"}: ${issue.message}`)
       .join(", ");
-    throw new DtoValidationError(
-      toolIdentifier,
-      errorMessages,
-      issues
-    );
+    throw new DtoValidationError(toolIdentifier, errorMessages, issues);
   }
   return parseResult.data;
-}
+};
 
-function protectLlmPayload(
+const protectLlmPayload = (
   payload: unknown,
   toolIdentifier: string,
   sanitizePii = true,
   throwOnPii = false
-): { sanitized: unknown; count: number } {
+): { sanitized: unknown; count: number } => {
   if (!sanitizePii) {
     return { sanitized: payload, count: 0 };
   }
@@ -97,15 +179,15 @@ function protectLlmPayload(
     throwOnPii,
   });
   return { sanitized: sanitizedData, count: maskedCount };
-}
+};
 
-async function processLlmPayload<TArgs, TResult>(
+const processLlmPayload = async <TArgs, TResult>(
   rawResult: TResult,
   args: TArgs,
   context: ToolExecutionContext,
   config: IsolatedToolConfig<TArgs, TResult, any, any>,
   toolIdentifier: string
-): Promise<{ sanitized: unknown; count: number }> {
+): Promise<{ sanitized: unknown; count: number }> => {
   let payload = await produceLlmPayload(rawResult, args, context, config.llmDto);
 
   if (config.llmDtoSchema) {
@@ -118,28 +200,30 @@ async function processLlmPayload<TArgs, TResult>(
     config.sanitizePii !== false,
     config.throwOnPii === true
   );
-}
+};
 
 /**
  * Creates an isolated tool compatible with Vercel AI SDK (ai) tool contract.
  * Features dual-channel separation (client data vs minimal LLM DTO),
- * access governance (domain, resource, roles, dataAccessGuard, invalidationTags),
+ * access governance (domain, resource, roles, dataAccessGuard, assertTenant, assertOwnership, invalidationTags),
  * stable ID, aliasing, caching, Zod DTO contract validation, and automatic in-flight PII redaction.
  */
-export function createIsolatedTool<
+export const createIsolatedTool = <
   TArgs = any,
   TResult = any,
   TLLMDto = unknown,
   TClientDto = TResult
 >(
   config: IsolatedToolConfig<TArgs, TResult, TLLMDto, TClientDto>
-): VercelAiCoreTool<TArgs, TResult> {
+): VercelAiCoreTool<TArgs, TResult> => {
   const toolId = config.id || config.name;
   const toolAlias = config.alias;
   const clientCallback = config.clientDto;
   const toolIdentifier = toolAlias || config.name;
   const toolImpact = config.impact ?? "READ_ONLY";
   const requireApproval = config.requireApproval ?? (toolImpact === "DESTRUCTIVE");
+
+  checkSuspiciousParameters(config.parameters, config.name);
 
   const tool: VercelAiCoreTool<TArgs, TResult> = {
     description: config.description,
@@ -156,11 +240,13 @@ export function createIsolatedTool<
     _requireApproval: requireApproval,
     _lastPiiFilteredCount: 0,
     _lastInvalidationTags: undefined,
-    async execute(args: TArgs, context?: ToolExecutionContext): Promise<any> {
+    execute: async (args: TArgs, context?: ToolExecutionContext): Promise<any> => {
       const updatedContext: ToolExecutionContext = {
         ...context,
         callChain: context?.callChain ?? Object.freeze([toolId]),
       };
+
+      verifyRoles(config.roles, updatedContext, toolIdentifier);
 
       await verifyDataAccessGuard(
         config.dataAccessGuard,
@@ -170,6 +256,15 @@ export function createIsolatedTool<
       );
 
       const rawResult = await config.execute(args, updatedContext);
+
+      verifyTenantIsolation(config.assertTenant, rawResult, updatedContext, toolIdentifier);
+
+      await verifyResourceOwnership(
+        config.assertOwnership,
+        rawResult,
+        updatedContext,
+        toolIdentifier
+      );
 
       const tags = await resolveInvalidationTags(
         config,
@@ -197,4 +292,20 @@ export function createIsolatedTool<
   };
 
   return tool;
-}
+};
+
+/**
+ * High-assurance factory for multi-tenant and user-owned tools.
+ * Compile-time enforcement: strictly requires either assertTenant or assertOwnership.
+ */
+export const createTenantTool = <
+  TArgs = any,
+  TResult = any,
+  TLLMDto = unknown,
+  TClientDto = TResult
+>(
+  config: TenantToolConfig<TArgs, TResult, TLLMDto, TClientDto>
+): VercelAiCoreTool<TArgs, TResult> => {
+  return createIsolatedTool(config);
+};
+

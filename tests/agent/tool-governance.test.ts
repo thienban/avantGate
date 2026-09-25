@@ -4,18 +4,19 @@ import {
   RoleBasedToolStrategy,
   ToolRegistry,
   createIsolatedTool,
+  createTenantTool,
   ToolAccessDeniedError,
 } from "../../src/agent";
 
-function assert(condition: boolean, msg: string) {
+const assert = (condition: boolean, msg: string): void => {
   if (!condition) {
     console.error(`❌ FAIL: ${msg}`);
     process.exit(1);
   }
   console.log(`✅ PASS: ${msg}`);
-}
+};
 
-async function runToolGovernanceTests() {
+const runToolGovernanceTests = async (): Promise<void> => {
   console.log("🛡️ Testing avantgate/agent Tool Governance, Domains & Access Control...\n");
 
   // 1. Declarative Metadata on Isolated Tools
@@ -42,7 +43,7 @@ async function runToolGovernanceTests() {
   assert(createLeadTool._impact === "MUTATIVE", "createLeadTool has impact MUTATIVE");
   assert(createLeadTool._requireApproval === false, "createLeadTool has _requireApproval false");
 
-  // 2. DataAccessGuard & ToolAccessDeniedError (anti-IDOR)
+  // 2. DataAccessGuard & Native RBAC Enforcement
   const deleteLeadTool = createIsolatedTool({
     name: "delete_lead",
     domain: "crm",
@@ -63,12 +64,30 @@ async function runToolGovernanceTests() {
     },
   });
 
-  // Test Guard Failure (IDOR attempt)
+  // Test 2.1: Native RBAC Failure (Calling with insufficient role)
+  let rbacDeniedCaught = false;
+  try {
+    await deleteLeadTool.execute(
+      { leadId: "lead-999", ownerTenantId: "tenant-attacker" },
+      { tenantId: "tenant-attacker", roles: ["SALES"] }
+    );
+  } catch (err) {
+    if (err instanceof ToolAccessDeniedError) {
+      rbacDeniedCaught = true;
+      assert(
+        err.message.includes("insufficient role permissions"),
+        "Native RBAC rejects execution when role does not match config.roles"
+      );
+    }
+  }
+  assert(rbacDeniedCaught, "Native RBAC blocked execution for unauthorized role");
+
+  // Test 2.2: DataAccessGuard Failure (IDOR attempt with valid role but invalid tenant)
   let deniedCaught = false;
   try {
     await deleteLeadTool.execute(
       { leadId: "lead-999", ownerTenantId: "tenant-victim" },
-      { tenantId: "tenant-attacker" }
+      { tenantId: "tenant-attacker", roles: ["ADMIN"] }
     );
   } catch (err) {
     if (err instanceof ToolAccessDeniedError) {
@@ -85,12 +104,13 @@ async function runToolGovernanceTests() {
   }
   assert(deniedCaught, "dataAccessGuard intercepted unauthorized IDOR mutation");
 
-  // Test Guard Success & InvalidationTags resolution
+  // Test 2.3: Authorized Execution & InvalidationTags resolution
   let emittedTags: string[] = [];
   const validExecResult = await deleteLeadTool.execute(
     { leadId: "lead-123", ownerTenantId: "tenant-valid" },
     {
       tenantId: "tenant-valid",
+      roles: ["ADMIN"],
       async onInvalidationTags(tags) {
         emittedTags = tags;
       },
@@ -106,6 +126,123 @@ async function runToolGovernanceTests() {
     emittedTags.includes("crm:prospects") && emittedTags.includes("crm:prospects:lead-123"),
     "Dynamic invalidationTags dispatched to context.onInvalidationTags"
   );
+
+  // Test 2.4: Anti-IDOR Post-Fetch Assertion (assertTenant)
+  const mockInvoicesDb = new Map([
+    ["inv-victim", { id: "inv-victim", amount: 9900, tenantId: "tenant-victim" }],
+    ["inv-safe", { id: "inv-safe", amount: 450, tenantId: "tenant-acme" }],
+  ]);
+
+  const fetchInvoiceTool = createIsolatedTool({
+    name: "fetch_invoice",
+    domain: "billing",
+    roles: ["FINANCE"],
+    parameters: z.object({ invoiceId: z.string() }),
+    assertTenant: (invoice) => invoice.tenantId,
+    llmDto: (invoice) => ({ id: invoice.id, amount: invoice.amount }),
+    async execute(args) {
+      const invoice = mockInvoicesDb.get(args.invoiceId);
+      if (!invoice) throw new Error("Invoice not found");
+      return invoice;
+    },
+  });
+
+  // Attempt IDOR: Acme tenant caller attempts to fetch victim's invoice
+  let idorCaught = false;
+  try {
+    await fetchInvoiceTool.execute(
+      { invoiceId: "inv-victim" },
+      { tenantId: "tenant-acme", role: "FINANCE" }
+    );
+  } catch (err) {
+    if (err instanceof ToolAccessDeniedError) {
+      idorCaught = true;
+      assert(
+        err.message.includes("Cross-tenant IDOR access violation"),
+        "assertTenant intercepted cross-tenant data leak before DTO mapping"
+      );
+    }
+  }
+  assert(idorCaught, "assertTenant successfully blocked cross-tenant IDOR access");
+
+  // Attempt without tenantId in session context (fail-closed security)
+  let missingTenantCaught = false;
+  try {
+    await fetchInvoiceTool.execute(
+      { invoiceId: "inv-safe" },
+      { role: "FINANCE" }
+    );
+  } catch (err) {
+    if (err instanceof ToolAccessDeniedError) {
+      missingTenantCaught = true;
+      assert(
+        err.message.includes("missing session tenantId"),
+        "assertTenant fails closed when context.tenantId is omitted"
+      );
+    }
+  }
+  assert(missingTenantCaught, "Fail-closed check blocked unauthenticated tenant invocation");
+
+  // Legitimate tenant fetch
+  const safeInvoice = await fetchInvoiceTool.execute(
+    { invoiceId: "inv-safe" },
+    { tenantId: "tenant-acme", role: "FINANCE" }
+  );
+  assert(safeInvoice.id === "inv-safe" && safeInvoice.amount === 450, "Safe tenant fetch succeeded");
+
+  // Test 2.5: Ownership Predicate (assertOwnership async / B2C)
+  const userProfileTool = createIsolatedTool({
+    name: "update_profile",
+    parameters: z.object({ targetUserId: z.string(), status: z.string() }),
+    assertOwnership: async (result, context) => {
+      return result.userId === context.userId;
+    },
+    async execute(args) {
+      return { userId: args.targetUserId, status: args.status };
+    },
+  });
+
+  let ownershipDenied = false;
+  try {
+    await userProfileTool.execute(
+      { targetUserId: "user-target" },
+      { userId: "user-attacker" }
+    );
+  } catch (err) {
+    if (err instanceof ToolAccessDeniedError) {
+      ownershipDenied = true;
+      assert(
+        err.message.includes("Ownership IDOR access violation"),
+        "assertOwnership caught ownership violation"
+      );
+    }
+  }
+  assert(ownershipDenied, "assertOwnership prevented unauthorized user mutation");
+
+  const safeProfile = await userProfileTool.execute(
+    { targetUserId: "user-legit", status: "active" },
+    { userId: "user-legit" }
+  );
+  assert(safeProfile.status === "active", "Valid assertOwnership allowed execution");
+
+  // Test 2.6: createTenantTool (High-Assurance Factory with mandatory assertTenant)
+  const tenantDocumentTool = createTenantTool({
+    name: "fetch_contract",
+    domain: "legal",
+    roles: ["LEGAL_COUNSEL"],
+    parameters: z.object({ documentId: z.string() }),
+    // Mandatory at compile-time (TypeScript refuses to compile without assertTenant or assertOwnership):
+    assertTenant: (doc) => doc.tenantId,
+    async execute(args) {
+      return { documentId: args.documentId, tenantId: "tenant-acme", confidential: true };
+    },
+  });
+
+  const validDoc = await tenantDocumentTool.execute(
+    { documentId: "doc-1" },
+    { tenantId: "tenant-acme", role: "LEGAL_COUNSEL" }
+  );
+  assert(validDoc.confidential === true, "createTenantTool executed successfully with verified tenant");
 
   // 3. Registry batch registration (registerMany), domain filtering & getDescriptors
   const calendarEventTool = createIsolatedTool({
