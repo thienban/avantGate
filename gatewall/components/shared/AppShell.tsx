@@ -22,7 +22,7 @@ export const AppShell: React.FC<AppShellProps> = ({ children }) => {
   return (
     <QueryProvider>
       <RealtimeListener>
-        <div className="flex h-screen w-full bg-zinc-950 text-zinc-100 overflow-hidden">
+        <div className="flex h-screen w-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-zinc-100 overflow-hidden transition-colors duration-150">
           <Sidebar />
           <main className="flex-1 flex flex-col min-w-0 overflow-y-auto">
             {children}

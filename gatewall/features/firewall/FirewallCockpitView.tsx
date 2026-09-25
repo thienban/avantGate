@@ -53,7 +53,7 @@ export const FirewallCockpitView: React.FC = () => {
 
   if (isSessionsLoading || !sessions.length) {
     return (
-      <div className="p-12 text-center text-zinc-400 text-sm">
+      <div className="p-12 text-center text-slate-500 dark:text-zinc-400 text-sm">
         Connexion à la passerelle temps réel avantGate...
       </div>
     );
@@ -95,8 +95,8 @@ export const FirewallCockpitView: React.FC = () => {
 
               {/* Loop Shield Alert Banner */}
               {currentSession.loopAlertTriggered && (
-                <div className="p-3.5 rounded-xl border border-rose-500/40 bg-rose-950/30 text-xs text-rose-300 flex items-center gap-2.5">
-                  <AlertOctagon className="h-4 w-4 text-rose-400 shrink-0" />
+                <div className="p-3.5 rounded-xl border border-rose-300 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-950/30 text-xs text-rose-800 dark:text-rose-300 flex items-center gap-2.5">
+                  <AlertOctagon className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
                   <span>
                     <strong>Disjoncteur Loop Shield Déclenché :</strong> Boucle infinie d&apos;outils
                     interceptée avec succès avant surconsommation financière.
@@ -108,11 +108,11 @@ export const FirewallCockpitView: React.FC = () => {
               <DualPassInspector session={currentSession} />
 
               {/* Step-by-Step Causal Timeline Replay */}
-              <Card className="border-zinc-800/80 bg-zinc-950/70 p-4 rounded-xl space-y-3">
-                <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+              <Card className="border-slate-200/90 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/70 p-4 rounded-xl space-y-3 shadow-xs dark:shadow-none">
+                <div className="flex items-center justify-between border-b border-slate-100 dark:border-zinc-800 pb-2">
                   <div className="flex items-center gap-2">
-                    <Terminal className="h-4 w-4 text-indigo-400" />
-                    <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                    <Terminal className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                    <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
                       Timeline Causale Ordonnée ({currentSession.events.length} événements)
                     </h3>
                   </div>
@@ -125,7 +125,7 @@ export const FirewallCockpitView: React.FC = () => {
                   {currentSession.events.map((event, index) => (
                     <div
                       key={index}
-                      className="p-2.5 rounded-lg border border-zinc-800/80 bg-zinc-900/40 flex items-center justify-between"
+                      className="p-2.5 rounded-lg border border-slate-200/80 dark:border-zinc-800/80 bg-slate-50 dark:bg-zinc-900/40 flex items-center justify-between"
                     >
                       <div className="flex items-center gap-2">
                         <span
@@ -135,25 +135,25 @@ export const FirewallCockpitView: React.FC = () => {
                               : event.type === "STEP_APPROVAL_REQUEST"
                               ? "bg-amber-400"
                               : event.type === "CLIENT_DATA_RENDERED"
-                              ? "bg-cyan-400"
+                              ? "bg-cyan-500"
                               : event.type === "USER_FEEDBACK"
-                              ? "bg-emerald-400"
-                              : "bg-indigo-400"
+                              ? "bg-emerald-500"
+                              : "bg-indigo-500"
                           }`}
                         />
-                        <span className="font-semibold text-zinc-200">{event.type}</span>
+                        <span className="font-semibold text-slate-800 dark:text-zinc-200">{event.type}</span>
                         {"stepName" in event && (
-                          <span className="text-zinc-400 font-mono text-[11px]">
+                          <span className="text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
                             ({(event as { stepName: string }).stepName})
                           </span>
                         )}
                         {"toolName" in event && (
-                          <span className="text-zinc-400 font-mono text-[11px]">
+                          <span className="text-slate-500 dark:text-zinc-400 font-mono text-[11px]">
                             ({(event as { toolName: string }).toolName})
                           </span>
                         )}
                       </div>
-                      <span className="text-[10px] text-zinc-500 font-mono">
+                      <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
                         {event.timestamp.slice(11, 19)}
                       </span>
                     </div>
@@ -162,7 +162,7 @@ export const FirewallCockpitView: React.FC = () => {
               </Card>
             </>
           ) : (
-            <div className="p-8 text-center text-zinc-400">
+            <div className="p-8 text-center text-slate-500 dark:text-zinc-400">
               Sélectionnez une session pour inspecter son flux.
             </div>
           )}

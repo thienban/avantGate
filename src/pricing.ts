@@ -1,5 +1,6 @@
 import type { ModelPrice, PricingAdapter } from "./types";
 export type { ModelPrice, PricingAdapter };
+export * from "./sqlite-pricing-adapter";
 
 export interface CalculateCostOptions {
   provider?: string;
@@ -41,9 +42,9 @@ export const SEED_MODEL_PRICES: Record<string, ModelPrice> = {
   "ollama": { promptUSDPerMillion: 0, completionUSDPerMillion: 0 },
 };
 
-function normalizeKey(identifier: string): string {
+const normalizeKey = (identifier: string): string => {
   return identifier.trim().toLowerCase().replace(":", "/");
-}
+};
 
 export class CachedPricingAdapter implements PricingAdapter {
   private cache = new Map<string, { price: ModelPrice; expiresAt: number }>();
@@ -55,7 +56,7 @@ export class CachedPricingAdapter implements PricingAdapter {
     this.ttlMs = ttlMs;
   }
 
-  async fetchPrice(model: string, provider?: string): Promise<ModelPrice | undefined> {
+  fetchPrice = async (model: string, provider?: string): Promise<ModelPrice | undefined> => {
     const key = provider ? normalizeKey(`${provider}/${model}`) : normalizeKey(model);
     const cached = this.cache.get(key);
 
@@ -77,25 +78,29 @@ export class CachedPricingAdapter implements PricingAdapter {
     }
 
     return undefined;
-  }
+  };
 
-  peek(model: string, provider?: string): ModelPrice | undefined {
+  peek = (model: string, provider?: string): ModelPrice | undefined => {
     const key = provider ? normalizeKey(`${provider}/${model}`) : normalizeKey(model);
-    return this.cache.get(key)?.price;
-  }
+    const cached = this.cache.get(key);
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.price;
+    }
+    return undefined;
+  };
 
-  clearCache(): void {
+  clearCache = (): void => {
     this.cache.clear();
-  }
+  };
 
-  invalidate(model?: string, provider?: string): void {
+  invalidate = (model?: string, provider?: string): void => {
     if (!model) {
       this.clearCache();
       return;
     }
     const key = provider ? normalizeKey(`${provider}/${model}`) : normalizeKey(model);
     this.cache.delete(key);
-  }
+  };
 }
 
 /**
@@ -106,60 +111,60 @@ export class PricingRegistry {
   private static prices = new Map<string, ModelPrice>();
   private static adapter?: PricingAdapter;
 
-  static registerPrice(identifier: string, price: ModelPrice): void {
-    this.prices.set(normalizeKey(identifier), price);
-  }
+  static registerPrice = (identifier: string, price: ModelPrice): void => {
+    PricingRegistry.prices.set(normalizeKey(identifier), price);
+  };
 
-  static registerDistributorPrices(distributor: string, priceMap: Record<string, ModelPrice>): void {
+  static registerDistributorPrices = (distributor: string, priceMap: Record<string, ModelPrice>): void => {
     for (const [model, price] of Object.entries(priceMap)) {
-      this.prices.set(normalizeKey(`${distributor}/${model}`), price);
+      PricingRegistry.prices.set(normalizeKey(`${distributor}/${model}`), price);
     }
-  }
+  };
 
-  static registerPrices(prices: Record<string, ModelPrice>): void {
+  static registerPrices = (prices: Record<string, ModelPrice>): void => {
     for (const [key, price] of Object.entries(prices)) {
-      this.prices.set(normalizeKey(key), price);
+      PricingRegistry.prices.set(normalizeKey(key), price);
     }
-  }
+  };
 
-  static getPrice(model: string, provider?: string): ModelPrice | undefined {
+  static getPrice = (model: string, provider?: string): ModelPrice | undefined => {
     if (provider) {
       const distributorKey = normalizeKey(`${provider}/${model}`);
-      const directDistributorPrice = this.prices.get(distributorKey);
+      const directDistributorPrice = PricingRegistry.prices.get(distributorKey);
       if (directDistributorPrice) {
         return directDistributorPrice;
       }
     }
-    return this.prices.get(normalizeKey(model));
-  }
+    return PricingRegistry.prices.get(normalizeKey(model));
+  };
 
-  static setAdapter(adapter: PricingAdapter): void {
-    this.adapter = adapter;
-  }
+  static setAdapter = (adapter: PricingAdapter): void => {
+    PricingRegistry.adapter = adapter;
+  };
 
-  static getAdapter(): PricingAdapter | undefined {
-    return this.adapter;
-  }
+  static getAdapter = (): PricingAdapter | undefined => {
+    return PricingRegistry.adapter;
+  };
 
-  static clear(): void {
-    this.prices.clear();
-    this.adapter = undefined;
-  }
+  static clear = (): void => {
+    PricingRegistry.prices.clear();
+    PricingRegistry.adapter = undefined;
+  };
 
   /**
    * Réinitialise le registre en chargeant le catalogue d'exemple SEED_MODEL_PRICES.
    */
-  static loadSeedPrices(): void {
-    this.registerPrices(SEED_MODEL_PRICES);
-  }
+  static loadSeedPrices = (): void => {
+    PricingRegistry.registerPrices(SEED_MODEL_PRICES);
+  };
 
-  static getAllPrices(): Record<string, ModelPrice> {
+  static getAllPrices = (): Record<string, ModelPrice> => {
     const out: Record<string, ModelPrice> = {};
-    for (const [k, v] of this.prices.entries()) {
+    for (const [k, v] of PricingRegistry.prices.entries()) {
       out[k] = v;
     }
     return out;
-  }
+  };
 }
 
 // Proxy de rétrocompatibilité pour `DEFAULT_MODEL_PRICES[model]`
@@ -182,10 +187,10 @@ export const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = new Proxy({} as 
   },
 });
 
-export function resolveModelPrice(
+export const resolveModelPrice = (
   model: string,
   options?: CalculateCostOptions | string
-): ModelPrice | undefined {
+): ModelPrice | undefined => {
   const opts: CalculateCostOptions = typeof options === "string" ? { provider: options } : (options ?? {});
 
   // 1. Surcharge explicite dans ProviderConfig
@@ -228,12 +233,12 @@ export function resolveModelPrice(
 
   // Strict & Truthful : aucun prix arbitraire inventé
   return undefined;
-}
+};
 
-export async function resolveModelPriceAsync(
+export const resolveModelPriceAsync = async (
   model: string,
   options?: CalculateCostOptions | string
-): Promise<ModelPrice | undefined> {
+): Promise<ModelPrice | undefined> => {
   const opts: CalculateCostOptions = typeof options === "string" ? { provider: options } : (options ?? {});
 
   // Si un adaptateur est configuré, interroger en amont
@@ -250,15 +255,15 @@ export async function resolveModelPriceAsync(
   }
 
   return resolveModelPrice(model, options);
-}
+};
 
-export function calculateCostUSD(
+export const calculateCostUSD = (
   model: string,
   promptTokens: number,
   completionTokens: number,
   cacheHitTokens: number = 0,
   options?: CalculateCostOptions | string
-): number {
+): number => {
   const pricing = resolveModelPrice(model, options);
 
   if (!pricing) {
@@ -272,4 +277,4 @@ export function calculateCostUSD(
     : 0;
 
   return Math.max(0, promptCost + completionCost - cacheDiscount);
-}
+};

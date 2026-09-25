@@ -15,12 +15,12 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const variantStyles = {
-    primary: "bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm",
-    secondary: "bg-zinc-800 hover:bg-zinc-700 text-zinc-100",
-    destructive: "bg-rose-600 hover:bg-rose-700 text-white shadow-sm",
-    success: "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm",
-    outline: "border border-zinc-700 hover:bg-zinc-800/80 text-zinc-200",
-    ghost: "hover:bg-zinc-800/50 text-zinc-300 hover:text-white",
+    primary: "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs",
+    secondary: "bg-slate-100 hover:bg-slate-200 text-slate-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-100",
+    destructive: "bg-rose-600 hover:bg-rose-700 text-white shadow-xs",
+    success: "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs",
+    outline: "border border-slate-200 hover:bg-slate-100 text-slate-700 dark:border-zinc-700 dark:hover:bg-zinc-800/80 dark:text-zinc-200",
+    ghost: "hover:bg-slate-100 text-slate-600 hover:text-slate-900 dark:hover:bg-zinc-800/50 dark:text-zinc-300 dark:hover:text-white",
   };
 
   const sizeStyles = {

@@ -25,7 +25,7 @@ export interface SanitizeResult {
   maskedCount: number;
 }
 
-export function sanitizePII(input: string): SanitizeResult {
+export const sanitizePII = (input: string): SanitizeResult => {
   let count = 0;
   let result = input;
 

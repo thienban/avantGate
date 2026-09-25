@@ -82,7 +82,8 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/finance/index.ts src/agent/index.ts src/workflow/index.ts src/client/index.ts --format cjs --format esm --clean && tsc --emitDeclarationOnly --outDir dist",
-    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && npm run test:agent && npm run test:workflow && npm run test:client",
+    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/sqlite-pricing-adapter.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && npm run test:agent && npm run test:workflow && npm run test:client",
+    "test:pricing": "tsx tests/sqlite-pricing-adapter.test.ts",
     "test:finance": "tsx tests/financial-normalizer.test.ts",
     "test:prompts": "tsx tests/prompt-builder.test.ts",
     "test:pii": "tsx tests/pii-extended.test.ts",
@@ -102,6 +103,7 @@
     "zod": "^3.23.0 || ^4.0.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.2",
     "@types/react": "^18.3.18",
     "react": "^18.3.1",
     "tsup": "^8.3.5",

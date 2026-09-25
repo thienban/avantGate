@@ -12,7 +12,7 @@ import type {
 import { ConfigurationError, BudgetExceededError } from "./types";
 import { validateUserInput } from "./input-guard";
 import { sanitizePII } from "./sanitizer";
-import { calculateCostUSD, CachedPricingAdapter, resolveModelPrice } from "./pricing";
+import { calculateCostUSD, CachedPricingAdapter, resolveModelPriceAsync } from "./pricing";
 import { validateWithZod } from "./response-validator";
 import { createHttpProviderClient } from "./providers/http-client";
 
@@ -44,7 +44,7 @@ export class AvantGateControlLayer {
     }
   }
 
-  private resolveProviderConfig(provider?: ProviderConfig): ProviderConfig | undefined {
+  private resolveProviderConfig = (provider?: ProviderConfig): ProviderConfig | undefined => {
     if (!provider) return undefined;
     if (provider.client) return provider;
     if (provider.apiKey || provider.baseUrl || provider.provider === "ollama") {
@@ -54,9 +54,9 @@ export class AvantGateControlLayer {
       };
     }
     return provider;
-  }
+  };
 
-  private findProviderConfig(provider?: string, model?: string): ProviderConfig | undefined {
+  private findProviderConfig = (provider?: string, model?: string): ProviderConfig | undefined => {
     const list = [this.config.primary, this.config.fallback, this.config.emergencyFallback].filter(
       (p): p is ProviderConfig => Boolean(p)
     );
@@ -69,15 +69,15 @@ export class AvantGateControlLayer {
       if (matchModel) return matchModel;
     }
     return this.config.primary;
-  }
+  };
 
-  private calculateCost(
+  private calculateCost = (
     model: string,
     promptTokens: number,
     completionTokens: number,
     cacheHitTokens: number = 0,
     provider?: string
-  ): number {
+  ): number => {
     const providerCfg = this.findProviderConfig(provider, model);
     return calculateCostUSD(model, promptTokens, completionTokens, cacheHitTokens, {
       provider: provider ?? providerCfg?.provider,
@@ -85,9 +85,9 @@ export class AvantGateControlLayer {
       customPricing: this.config.customPricing,
       adapter: this.cachedPricingAdapter,
     });
-  }
+  };
 
-  private applySecurityGuards(userQuery: string): string {
+  private applySecurityGuards = (userQuery: string): string => {
     const guard = validateUserInput(userQuery, {
       detectInjection: this.config.security?.detectPromptInjection,
       maxLength: this.config.security?.maxInputLength,
@@ -102,9 +102,13 @@ export class AvantGateControlLayer {
     }
 
     return userQuery;
-  }
+  };
 
-  private checkPreflightBudget(estimatedPromptTokens: number, targetModel: string, provider?: string): void {
+  private checkPreflightBudget = async (
+    estimatedPromptTokens: number,
+    targetModel: string,
+    provider?: string
+  ): Promise<void> => {
     if (this.config.maxTokenBudget !== undefined && estimatedPromptTokens > this.config.maxTokenBudget) {
       throw new BudgetExceededError(
         `[AvantGate Budget Guard] Pre-flight token budget exceeded: estimated prompt (${estimatedPromptTokens} tokens) exceeds maxTokenBudget (${this.config.maxTokenBudget}).`
@@ -114,7 +118,7 @@ export class AvantGateControlLayer {
     if (this.config.maxCostUSD !== undefined) {
       const isLocalFree = provider === "ollama" || targetModel.toLowerCase().includes("ollama");
       const providerCfg = this.findProviderConfig(provider, targetModel);
-      const price = resolveModelPrice(targetModel, {
+      const price = await resolveModelPriceAsync(targetModel, {
         provider: provider ?? providerCfg?.provider,
         providerPricing: providerCfg?.pricing,
         customPricing: this.config.customPricing,
@@ -134,9 +138,9 @@ export class AvantGateControlLayer {
         );
       }
     }
-  }
+  };
 
-  private checkPostExecutionBudget(tokensTotal: number, costUSD: number): void {
+  private checkPostExecutionBudget = (tokensTotal: number, costUSD: number): void => {
     if (this.config.maxTokenBudget !== undefined && tokensTotal > this.config.maxTokenBudget) {
       throw new BudgetExceededError(
         `[AvantGate Budget Guard] Execution total tokens (${tokensTotal}) exceeded maxTokenBudget (${this.config.maxTokenBudget}).`
@@ -147,18 +151,18 @@ export class AvantGateControlLayer {
         `[AvantGate Budget Guard] Execution cost ($${costUSD.toFixed(6)}) exceeded maxCostUSD ($${this.config.maxCostUSD}).`
       );
     }
-  }
+  };
 
-  private buildMessages(systemPrompt: string | undefined, query: string): ChatMessage[] {
+  private buildMessages = (systemPrompt: string | undefined, query: string): ChatMessage[] => {
     const messages: ChatMessage[] = [];
     if (systemPrompt) {
       messages.push({ role: "system", content: systemPrompt });
     }
     messages.push({ role: "user", content: query });
     return messages;
-  }
+  };
 
-  private resolveTokens(rawUsage: LLMUsage | undefined, query: string, text: string) {
+  private resolveTokens = (rawUsage: LLMUsage | undefined, query: string, text: string) => {
     const promptTokens = rawUsage?.promptTokens ?? Math.ceil(query.length / 4);
     const completionTokens = rawUsage?.completionTokens ?? Math.ceil(text.length / 4);
     const totalTokens = rawUsage?.totalTokens ?? promptTokens + completionTokens;
@@ -168,17 +172,17 @@ export class AvantGateControlLayer {
       totalTokens,
       promptCacheHitTokens: rawUsage?.promptCacheHitTokens,
     };
-  }
+  };
 
-  private getProviderChain(): ProviderConfig[] {
+  private getProviderChain = (): ProviderConfig[] => {
     return [
       this.config.primary,
       this.config.fallback,
       this.config.emergencyFallback,
     ].filter((provider): provider is ProviderConfig => Boolean(provider?.client));
-  }
+  };
 
-  private executeSimulation(query: string, systemPrompt?: string): ExecutionResult {
+  private executeSimulation = (query: string, systemPrompt?: string): ExecutionResult => {
     const promptTokens = Math.ceil(((systemPrompt?.length ?? 0) + query.length) / 4);
     const completionTokens = 50;
     const cost = this.calculateCost(this.config.primary.model, promptTokens, completionTokens);
@@ -195,14 +199,14 @@ export class AvantGateControlLayer {
       failoverOccurred: false,
       attempts: 1,
     };
-  }
+  };
 
-  private async executeOverrideProvider(
+  private executeOverrideProvider = async (
     provider: LLMProviderPort,
     messages: ChatMessage[],
     query: string,
     temperature?: number
-  ): Promise<ProviderDispatchOutput> {
+  ): Promise<ProviderDispatchOutput> => {
     const response = await provider.complete({
       model: this.config.primary.model,
       messages,
@@ -216,14 +220,14 @@ export class AvantGateControlLayer {
       failoverOccurred: false,
       attempts: 1,
     };
-  }
+  };
 
-  private async executeProviderPipeline(
+  private executeProviderPipeline = async (
     messages: ChatMessage[],
     query: string,
     temperature?: number,
     modelOverride?: string
-  ): Promise<ProviderDispatchOutput> {
+  ): Promise<ProviderDispatchOutput> => {
     const chain = this.getProviderChain();
     let lastError: unknown;
 
@@ -249,9 +253,9 @@ export class AvantGateControlLayer {
       }
     }
     throw lastError;
-  }
+  };
 
-  private assembleResult(output: ProviderDispatchOutput): ExecutionResult {
+  private assembleResult = (output: ProviderDispatchOutput): ExecutionResult => {
     const costUSD = this.calculateCost(
       output.modelUsed,
       output.usage.promptTokens,
@@ -271,9 +275,9 @@ export class AvantGateControlLayer {
       failoverOccurred: output.failoverOccurred,
       attempts: output.attempts,
     };
-  }
+  };
 
-  private async notifyAuditSink(result: ExecutionResult): Promise<void> {
+  private notifyAuditSink = async (result: ExecutionResult): Promise<void> => {
     if (!this.config.auditSink) {
       return;
     }
@@ -286,23 +290,23 @@ export class AvantGateControlLayer {
       failoverOccurred: result.failoverOccurred,
       attempts: result.attempts,
     });
-  }
+  };
 
   /**
    * Exécute une requête avec garde d'entrée, masquage PII, garde pré-vol et calcul des coûts.
    */
-  async execute(options: {
+  execute = async (options: {
     userQuery: string;
     systemPrompt?: string;
     temperature?: number;
     providerOverride?: LLMProviderPort;
-  }): Promise<ExecutionResult> {
+  }): Promise<ExecutionResult> => {
     const sanitizedQuery = this.applySecurityGuards(options.userQuery);
     const messages = this.buildMessages(options.systemPrompt, sanitizedQuery);
 
     const promptLength = (options.systemPrompt?.length ?? 0) + sanitizedQuery.length;
     const estimatedPromptTokens = Math.ceil(promptLength / 4);
-    this.checkPreflightBudget(estimatedPromptTokens, this.config.primary.model, this.config.primary.provider);
+    await this.checkPreflightBudget(estimatedPromptTokens, this.config.primary.model, this.config.primary.provider);
 
     if (!options.providerOverride && this.getProviderChain().length === 0) {
       if (this.config.mockSimulation) {
@@ -323,18 +327,18 @@ export class AvantGateControlLayer {
     this.checkPostExecutionBudget(result.tokens.total, result.costUSD);
     await this.notifyAuditSink(result);
     return result;
-  }
+  };
 
   /**
    * Exécute une requête et valide/répare le résultat selon un schéma Zod.
    */
-  async executeStructured<T>(options: {
+  executeStructured = async <T>(options: {
     userQuery: string;
     systemPrompt?: string;
     schema: z.ZodType<T>;
     temperature?: number;
     providerOverride?: LLMProviderPort;
-  }): Promise<StructuredExecutionResult<T>> {
+  }): Promise<StructuredExecutionResult<T>> => {
     const rawResult = await this.execute({
       userQuery: options.userQuery,
       systemPrompt: options.systemPrompt,
@@ -359,15 +363,15 @@ export class AvantGateControlLayer {
       modelUsed: rawResult.modelUsed,
       failoverOccurred: rawResult.failoverOccurred,
     };
-  }
+  };
 
   /**
    * Méthode unifiée de premier niveau pour l'extraction structurée sans code boilerplate.
    * Gère le failover multi-fournisseurs, les retries, la validation Zod et la normalisation financière.
    */
-  async generateStructuredOutput<T>(
+  generateStructuredOutput = async <T>(
     options: GenerateStructuredOutputOptions<T>
-  ): Promise<StructuredExecutionResult<T>> {
+  ): Promise<StructuredExecutionResult<T>> => {
     const maxRetries = options.maxRetries ?? this.config.retryOptions?.maxRetries ?? 2;
     const modelToUse = options.model ?? this.config.primary.model;
 
@@ -380,7 +384,7 @@ export class AvantGateControlLayer {
 
     const promptLength = processedMessages.reduce((sum, msg) => sum + msg.content.length, 0);
     const estimatedPromptTokens = Math.ceil(promptLength / 4);
-    this.checkPreflightBudget(estimatedPromptTokens, modelToUse);
+    await this.checkPreflightBudget(estimatedPromptTokens, modelToUse);
 
     let lastError: unknown;
     let accumulatedPromptTokens = 0;
@@ -484,12 +488,12 @@ export class AvantGateControlLayer {
     }
 
     throw lastError;
-  }
+  };
 }
 
-export function createLLMControlLayer(config: ControlLayerConfig): AvantGateControlLayer {
+export const createLLMControlLayer = (config: ControlLayerConfig): AvantGateControlLayer => {
   return new AvantGateControlLayer(config);
-}
+};
 
 export const createAvantGate = createLLMControlLayer;
 export { AvantGateControlLayer as ZenLLMControlLayer };

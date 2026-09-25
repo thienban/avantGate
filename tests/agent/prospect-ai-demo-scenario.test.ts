@@ -8,7 +8,7 @@ import {
 import { createAvantGateClient } from "../../src/client";
 import type { ClientTelemetryIngestPayload } from "../../src/client/types";
 
-async function runProspectAiDemoScenario(): Promise<void> {
+const runProspectAiDemoScenario = async (): Promise<void> => {
   console.log("🚀 Starting ProspectAI x gateWall End-to-End MVP Demo Simulation...\n");
 
   const dispatchedIngestPayloads: ClientTelemetryIngestPayload[] = [];
@@ -149,8 +149,8 @@ async function runProspectAiDemoScenario(): Promise<void> {
         estimatedPipelineValue: "50,000 €",
       },
     });
-  } catch (err: any) {
-    if (err.name === "StepSuspendedError") {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === "StepSuspendedError") {
       suspended = true;
     }
   }

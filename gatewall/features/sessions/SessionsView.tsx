@@ -21,7 +21,7 @@ export const SessionsView: React.FC = () => {
   const { data: detailData } = useSessionDetailQuery(selectedId);
 
   if (isLoading || !data) {
-    return <div className="p-8 text-center text-zinc-400 text-sm">Chargement des sessions...</div>;
+    return <div className="p-8 text-center text-slate-500 dark:text-zinc-400 text-sm">Chargement des sessions...</div>;
   }
 
   const sessions = data.sessions;
@@ -45,8 +45,8 @@ export const SessionsView: React.FC = () => {
       {/* Sessions Master List (4 cols) */}
       <div className="lg:col-span-4 flex flex-col space-y-3 overflow-y-auto pr-1">
         <div className="flex items-center justify-between px-1">
-          <h2 className="text-sm font-semibold text-white">Sessions Récentes ({sessions.length})</h2>
-          <span className="text-[11px] text-zinc-400">Tri par date</span>
+          <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Sessions Récentes ({sessions.length})</h2>
+          <span className="text-[11px] text-slate-500 dark:text-zinc-400">Tri par date</span>
         </div>
 
         <div className="space-y-2.5">
@@ -58,25 +58,25 @@ export const SessionsView: React.FC = () => {
                 onClick={() => setSelectedId(session.runId)}
                 className={`p-3.5 rounded-xl border cursor-pointer transition-all ${
                   isSelected
-                    ? "border-indigo-500/50 bg-indigo-950/20 shadow-md shadow-indigo-500/10"
-                    : "border-zinc-800/80 bg-zinc-900/40 hover:bg-zinc-900/70 hover:border-zinc-700/80"
+                    ? "border-indigo-500 bg-indigo-50/70 shadow-xs dark:border-indigo-500/50 dark:bg-indigo-950/20 dark:shadow-md dark:shadow-indigo-500/10"
+                    : "border-slate-200/90 bg-white hover:bg-slate-50 hover:border-slate-300 shadow-xs dark:border-zinc-800/80 dark:bg-zinc-900/40 dark:hover:bg-zinc-900/70 dark:hover:border-zinc-700/80 dark:shadow-none"
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-xs font-semibold text-white truncate">
+                  <span className="font-mono text-xs font-semibold text-slate-900 dark:text-white truncate">
                     {session.runId}
                   </span>
                   {getStatusBadge(session.status)}
                 </div>
 
-                <div className="flex items-center justify-between text-xs text-zinc-400 mb-2">
-                  <span className="text-zinc-300 font-medium">{session.agentName}</span>
-                  <span className="font-mono text-indigo-400 font-semibold">
+                <div className="flex items-center justify-between text-xs text-slate-600 dark:text-zinc-400 mb-2">
+                  <span className="text-slate-800 dark:text-zinc-300 font-medium">{session.agentName}</span>
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
                     {formatCurrency(session.totalCostUsd)}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3 text-[11px] text-zinc-400 pt-2 border-t border-zinc-800/60">
+                <div className="flex items-center gap-3 text-[11px] text-slate-500 dark:text-zinc-400 pt-2 border-t border-slate-100 dark:border-zinc-800/60">
                   <span className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {formatDuration(session.durationMs)}
@@ -101,29 +101,29 @@ export const SessionsView: React.FC = () => {
         {currentSession ? (
           <>
             {/* Session Header Card */}
-            <Card className="border-zinc-800/80 bg-zinc-950/80 p-5">
+            <Card className="border-slate-200/90 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/80 p-5 shadow-xs dark:shadow-none">
               <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-lg font-bold text-white font-mono">{currentSession.runId}</h2>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white font-mono">{currentSession.runId}</h2>
                     {getStatusBadge(currentSession.status)}
                   </div>
-                  <p className="text-xs text-zinc-400 mt-0.5">
-                    Agent : <strong className="text-zinc-200">{currentSession.agentName}</strong> • Modèle :{" "}
-                    <strong className="text-zinc-200">{currentSession.model}</strong>
+                  <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
+                    Agent : <strong className="text-slate-800 dark:text-zinc-200">{currentSession.agentName}</strong> • Modèle :{" "}
+                    <strong className="text-slate-800 dark:text-zinc-200">{currentSession.model}</strong>
                   </p>
                 </div>
 
                 <div className="flex items-center gap-4 text-xs font-mono">
-                  <div className="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60">
-                    <span className="text-zinc-400 block text-[10px]">COÛT TOTAL</span>
-                    <span className="text-emerald-400 font-bold">
+                  <div className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/60">
+                    <span className="text-slate-400 dark:text-zinc-400 block text-[10px]">COÛT TOTAL</span>
+                    <span className="text-emerald-700 dark:text-emerald-400 font-bold">
                       {formatCurrency(currentSession.totalCostUsd)}
                     </span>
                   </div>
-                  <div className="px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/60">
-                    <span className="text-zinc-400 block text-[10px]">TOKENS</span>
-                    <span className="text-indigo-400 font-bold">
+                  <div className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/60">
+                    <span className="text-slate-400 dark:text-zinc-400 block text-[10px]">TOKENS</span>
+                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">
                       {formatTokens(currentSession.totalTokens)}
                     </span>
                   </div>
@@ -132,8 +132,8 @@ export const SessionsView: React.FC = () => {
 
               {/* Infinite Loop Alert if triggered */}
               {currentSession.loopAlertTriggered && (
-                <div className="p-3 mb-2 rounded-lg border border-rose-500/30 bg-rose-950/30 text-xs text-rose-300 flex items-center gap-2">
-                  <AlertOctagon className="h-4 w-4 text-rose-400 shrink-0" />
+                <div className="p-3 mb-2 rounded-lg border border-rose-300 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-950/30 text-xs text-rose-800 dark:text-rose-300 flex items-center gap-2">
+                  <AlertOctagon className="h-4 w-4 text-rose-600 dark:text-rose-400 shrink-0" />
                   <span>
                     <strong>Disjoncteur Loop Shield Déclenché :</strong> Boucle infinie d&apos;outils interceptée avec succès avant surconsommation financière.
                   </span>
@@ -142,24 +142,24 @@ export const SessionsView: React.FC = () => {
             </Card>
 
             {/* Step-by-Step Replay Timeline */}
-            <Card className="border-zinc-800/80 bg-zinc-950/80 p-5 flex-1">
+            <Card className="border-slate-200/90 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/80 p-5 flex-1 shadow-xs dark:shadow-none">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <Terminal className="h-4 w-4 text-indigo-400" />
-                  <h3 className="text-sm font-semibold text-white">Timeline Replay Causal</h3>
+                  <Terminal className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Timeline Replay Causal</h3>
                 </div>
                 <Badge variant="outline" className="text-[11px]">
                   {currentSession.events.length} événements ordonnés
                 </Badge>
               </div>
 
-              <div className="relative border-l-2 border-zinc-800 ml-4 space-y-6 pb-2">
+              <div className="relative border-l-2 border-slate-200 dark:border-zinc-800 ml-4 space-y-6 pb-2">
                 {currentSession.events.map((event, index) => {
                   return (
                     <div key={index} className="relative pl-6">
                       {/* Timeline dot */}
                       <div
-                        className={`absolute -left-[9px] top-1.5 h-4 w-4 rounded-full border-2 border-zinc-950 ${
+                        className={`absolute -left-[9px] top-1.5 h-4 w-4 rounded-full border-2 border-white dark:border-zinc-950 ${
                           event.type === "STEP_APPROVAL_REQUEST"
                             ? "bg-amber-400 ring-4 ring-amber-400/20"
                             : event.type === "TOOL_EXECUTION"
@@ -168,15 +168,15 @@ export const SessionsView: React.FC = () => {
                         }`}
                       />
 
-                      <div className="p-4 rounded-xl border border-zinc-800/80 bg-zinc-900/50 space-y-2">
+                      <div className="p-4 rounded-xl border border-slate-200/90 dark:border-zinc-800/80 bg-slate-50/80 dark:bg-zinc-900/50 space-y-2">
                         {/* Event Title Row */}
                         <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-zinc-200 flex items-center gap-1.5">
+                          <span className="text-xs font-bold text-slate-800 dark:text-zinc-200 flex items-center gap-1.5">
                             {event.type === "STEP_START" && "▶ Début d'Étape"}
                             {event.type === "TOOL_EXECUTION" && "⚙ Appel d'Outil Sécurisé"}
                             {event.type === "STEP_COMPLETED" && "✔ Étape Validée"}
                             {event.type === "STEP_APPROVAL_REQUEST" && "✋ Approbation Humaine Requise"}
-                            <span className="font-mono text-zinc-400 text-[11px]">
+                            <span className="font-mono text-slate-500 dark:text-zinc-400 text-[11px]">
                               {event.type === "TOOL_EXECUTION"
                                 ? event.toolName
                                 : "stepName" in event
@@ -184,7 +184,7 @@ export const SessionsView: React.FC = () => {
                                 : ""}
                             </span>
                           </span>
-                          <span className="text-[10px] text-zinc-400 font-mono">
+                          <span className="text-[10px] text-slate-400 dark:text-zinc-400 font-mono">
                             {event.timestamp.slice(11, 19)}
                           </span>
                         </div>
@@ -193,14 +193,14 @@ export const SessionsView: React.FC = () => {
                         {event.type === "TOOL_EXECUTION" && (
                           <div className="space-y-2 text-xs">
                             <div className="flex flex-wrap gap-2 text-[11px]">
-                              <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300">
+                              <span className="px-2 py-0.5 rounded bg-slate-200/60 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300">
                                 Latence : {event.durationMs}ms
                               </span>
-                              <span className="px-2 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-500/30">
+                              <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-500/30">
                                 Coût : {formatCurrency(event.costUsd || 0)}
                               </span>
                               {event.piiFilteredCount > 0 && (
-                                <span className="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-500/30 flex items-center gap-1">
                                   <ShieldCheck className="h-3 w-3" />
                                   {event.piiFilteredCount} PII masquées
                                 </span>
@@ -209,8 +209,8 @@ export const SessionsView: React.FC = () => {
 
                             {/* Safe LLM Summary preview */}
                             {event.llmSummary && (
-                              <div className="p-2.5 rounded-lg bg-zinc-950/80 border border-zinc-800 text-zinc-300 font-mono text-[11px] overflow-x-auto">
-                                <span className="text-zinc-400 block text-[10px] uppercase font-bold mb-1">
+                              <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 dark:bg-zinc-950/80 dark:border-zinc-800 text-slate-200 dark:text-zinc-300 font-mono text-[11px] overflow-x-auto">
+                                <span className="text-slate-400 dark:text-zinc-400 block text-[10px] uppercase font-bold mb-1">
                                   Résumé Sanitisé transmis au LLM :
                                 </span>
                                 {JSON.stringify(event.llmSummary, null, 2)}
@@ -221,11 +221,11 @@ export const SessionsView: React.FC = () => {
 
                         {/* Approval Request Details */}
                         {event.type === "STEP_APPROVAL_REQUEST" && (
-                          <div className="p-3 rounded-lg bg-amber-950/20 border border-amber-500/30 text-xs text-amber-200 space-y-1.5">
+                          <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-500/30 text-xs text-amber-900 dark:text-amber-200 space-y-1.5">
                             <p className="font-semibold">
                               Action Sensible : {event.actionType}
                             </p>
-                            <pre className="text-[11px] font-mono text-zinc-300 bg-zinc-950/60 p-2 rounded border border-amber-500/20 overflow-x-auto">
+                            <pre className="text-[11px] font-mono text-amber-200 bg-slate-900 dark:bg-zinc-950/60 p-2 rounded border border-amber-300 dark:border-amber-500/20 overflow-x-auto">
                               {JSON.stringify(event.payloadSummary, null, 2)}
                             </pre>
                           </div>
@@ -238,7 +238,7 @@ export const SessionsView: React.FC = () => {
             </Card>
           </>
         ) : (
-          <div className="p-8 text-center text-zinc-400">Sélectionnez une session pour inspecter son replay.</div>
+          <div className="p-8 text-center text-slate-500 dark:text-zinc-400">Sélectionnez une session pour inspecter son replay.</div>
         )}
       </div>
     </div>

@@ -12,7 +12,7 @@ export interface ValidateOptions {
  * Nettoie et extrait un bloc JSON valide depuis une réponse de LLM
  * (gère les blocs markdown ```json ... ```, les balises de réflexion, etc.)
  */
-export function extractAndCleanJSON(rawText: string): string {
+export const extractAndCleanJSON = (rawText: string): string => {
   let cleaned = rawText.trim();
 
   // Retirer les balises <think>...</think> (DeepSeek R1)
@@ -52,11 +52,11 @@ export function extractAndCleanJSON(rawText: string): string {
  * Valide et auto-répare une sortie JSON contre un schéma Zod.
  * Supporte l'option de normalisation financière (parenthèses négatives, formats comptables).
  */
-export function validateWithZod<T>(
+export const validateWithZod = <T>(
   rawText: string,
   schema: z.ZodType<T>,
   options?: ValidateOptions
-): T {
+): T => {
   let jsonString = extractAndCleanJSON(rawText);
 
   if (options?.normalizer) {

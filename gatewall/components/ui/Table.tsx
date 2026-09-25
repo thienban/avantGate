@@ -9,7 +9,7 @@ export const Table: React.FC<TableProps> = ({ className, children, ...props }) =
   return (
     <div className="w-full overflow-x-auto">
       <table
-        className={cn("w-full text-left text-sm text-zinc-300 border-collapse", className)}
+        className={cn("w-full text-left text-sm text-slate-700 dark:text-zinc-300 border-collapse", className)}
         {...props}
       >
         {children}

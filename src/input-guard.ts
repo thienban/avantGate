@@ -17,10 +17,10 @@ export interface InputGuardResult {
   blockedReason?: string;
 }
 
-export function validateUserInput(
+export const validateUserInput = (
   input: string,
   options?: { detectInjection?: boolean; maxLength?: number }
-): InputGuardResult {
+): InputGuardResult => {
   const maxLength = options?.maxLength ?? 50_000;
   if (input.length > maxLength) {
     return {

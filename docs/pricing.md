@@ -178,7 +178,39 @@ const control = createAvantGate({
 });
 ```
 
-#### C. Hot-Cache Invalidation on Admin Updates
+#### C. Built-in Zero-Infrastructure SQLite Adapter (`SqlitePricingAdapter`)
+
+For standalone services, edge runtimes, or applications utilizing the GateWall self-hosted SQLite store (`data/gatewall.db`), AvantGate provides the native `SqlitePricingAdapter`:
+
+```typescript
+import { createAvantGate, SqlitePricingAdapter } from "avantgate";
+
+// 1. Initialize SQLite storage with automatic seed
+const sqlitePricing = new SqlitePricingAdapter({
+  dbPath: "./data/gatewall.db", // Local DB file or ":memory:"
+  autoSeed: true,              // Pre-populates SEED_MODEL_PRICES if empty
+});
+
+// 2. Wire directly into AvantGate with 0 ms RAM cache
+const control = createAvantGate({
+  primary: {
+    provider: "deepseek",
+    model: "deepseek-chat",
+    apiKey: process.env.DEEPSEEK_API_KEY!,
+  },
+  pricingAdapter: sqlitePricing,
+  pricingCacheTtlMs: 5 * 60 * 1000,
+  maxCostUSD: 0.01,
+});
+
+// 3. Dynamic management & hot updates:
+sqlitePricing.upsertPrice("openai", "gpt-4o", {
+  promptUSDPerMillion: 2.50,
+  completionUSDPerMillion: 10.00,
+});
+```
+
+#### D. Hot-Cache Invalidation on Admin Updates
 
 When an administrator updates a price in your web back-office:
 

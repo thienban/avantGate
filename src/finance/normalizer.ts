@@ -15,10 +15,10 @@ export interface FinancialNormalizerOptions {
  * - Suppression des symboles de devises dans les positions numériques
  * - Préservation stricte des chaînes descriptives normales contenant des parenthèses
  */
-export function cleanFinancialJSON(
+export const cleanFinancialJSON = (
   rawText: string,
   options?: FinancialNormalizerOptions
-): string {
+): string => {
   if (!rawText) {
     return "";
   }
@@ -35,13 +35,13 @@ export function cleanFinancialJSON(
 
   // 3. Appliquer le nettoyage de la stratégie
   return strategy.cleanJSON(jsonBlock);
-}
+};
 
 /**
  * Crée une fonction de transformation financière réutilisable.
  */
-export function withFinancialNormalizer(
+export const withFinancialNormalizer = (
   options?: FinancialNormalizerOptions
-): (rawText: string) => string {
+): ((rawText: string) => string) => {
   return (rawText: string) => cleanFinancialJSON(rawText, options);
-}
+};

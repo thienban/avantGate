@@ -48,15 +48,15 @@ export class HttpProviderClient implements LLMProviderPort {
     this.baseUrl = config.baseUrl || DEFAULT_BASE_URLS[config.provider] || "https://api.openai.com/v1";
   }
 
-  private resolveEndpoint(): string {
+  private resolveEndpoint = (): string => {
     const trimmed = this.baseUrl.replace(/\/+$/, "");
     if (trimmed.endsWith("/chat/completions")) {
       return trimmed;
     }
     return `${trimmed}/chat/completions`;
-  }
+  };
 
-  private buildHeaders(): Record<string, string> {
+  private buildHeaders = (): Record<string, string> => {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
@@ -71,9 +71,9 @@ export class HttpProviderClient implements LLMProviderPort {
     }
 
     return headers;
-  }
+  };
 
-  private buildPayload(options: LLMCompletionOptions, model: string) {
+  private buildPayload = (options: LLMCompletionOptions, model: string) => {
     return {
       model,
       messages: options.messages.map((m: ChatMessage) => ({
@@ -83,9 +83,9 @@ export class HttpProviderClient implements LLMProviderPort {
       temperature: options.temperature ?? 0.2,
       ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
     };
-  }
+  };
 
-  private extractUsage(usageData?: OpenAIChatResponse["usage"]): LLMUsage | undefined {
+  private extractUsage = (usageData?: OpenAIChatResponse["usage"]): LLMUsage | undefined => {
     if (!usageData) {
       return undefined;
     }
@@ -95,9 +95,9 @@ export class HttpProviderClient implements LLMProviderPort {
       totalTokens: usageData.total_tokens,
       promptCacheHitTokens: usageData.prompt_tokens_details?.cached_tokens,
     };
-  }
+  };
 
-  async complete(options: LLMCompletionOptions): Promise<{ text: string; usage?: LLMUsage }> {
+  complete = async (options: LLMCompletionOptions): Promise<{ text: string; usage?: LLMUsage }> => {
     const endpoint = this.resolveEndpoint();
     const model = options.model ?? "default";
     const headers = this.buildHeaders();
@@ -121,9 +121,9 @@ export class HttpProviderClient implements LLMProviderPort {
     const usage = this.extractUsage(data.usage);
 
     return { text, usage };
-  }
+  };
 }
 
-export function createHttpProviderClient(config: ProviderConfig): HttpProviderClient {
+export const createHttpProviderClient = (config: ProviderConfig): HttpProviderClient => {
   return new HttpProviderClient(config);
-}
+};

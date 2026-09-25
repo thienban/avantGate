@@ -21,7 +21,7 @@ export const ApprovalsView: React.FC = () => {
 
   if (isLoading || !data) {
     return (
-      <div className="p-8 text-center text-zinc-400 text-sm">
+      <div className="p-8 text-center text-slate-500 dark:text-zinc-400 text-sm">
         Chargement des demandes d&apos;approbations...
       </div>
     );
@@ -44,17 +44,17 @@ export const ApprovalsView: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="p-5 rounded-xl border border-amber-500/30 bg-gradient-to-r from-amber-950/40 via-orange-950/20 to-zinc-950/40 flex items-center justify-between">
+      <div className="p-5 rounded-xl border border-amber-300 dark:border-amber-500/30 bg-gradient-to-r from-amber-50 via-orange-50/50 to-white dark:from-amber-950/40 dark:via-orange-950/20 dark:to-zinc-950/40 flex items-center justify-between shadow-xs dark:shadow-none">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-lg bg-amber-500/20 border border-amber-500/30 text-amber-400">
+          <div className="p-2.5 rounded-lg bg-amber-100 border border-amber-300 text-amber-700 dark:bg-amber-500/20 dark:border-amber-500/30 dark:text-amber-400">
             <UserCheck className="h-6 w-6" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-white flex items-center gap-2">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
               Mission Control : Human-in-the-Loop
               <Badge variant="warning">{pendingApprovals.length} en attente</Badge>
             </h2>
-            <p className="text-xs text-zinc-400 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">
               Validez ou rejetez en temps réel les actions critiques des agents suspendues avec <code>step.waitForApproval()</code>.
             </p>
           </div>
@@ -63,13 +63,13 @@ export const ApprovalsView: React.FC = () => {
 
       {/* Pending Approvals Section */}
       <div className="space-y-4">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
           <span>Actions Suspendues Nécessitant Validation</span>
-          <span className="text-xs text-zinc-400 font-normal">({pendingApprovals.length})</span>
+          <span className="text-xs text-slate-500 dark:text-zinc-400 font-normal">({pendingApprovals.length})</span>
         </h3>
 
         {pendingApprovals.length === 0 ? (
-          <Card className="p-8 text-center text-zinc-400 text-xs border-dashed border-zinc-800">
+          <Card className="p-8 text-center text-slate-500 dark:text-zinc-400 text-xs border-dashed border-slate-300 dark:border-zinc-800 bg-white dark:bg-zinc-950/70">
             Aucune action critique en attente. Tous les agents fonctionnent dans leur périmètre nominal.
           </Card>
         ) : (
@@ -77,22 +77,22 @@ export const ApprovalsView: React.FC = () => {
             {pendingApprovals.map((item) => (
               <Card
                 key={item.id}
-                className="border-amber-500/30 bg-zinc-950/90 p-5 space-y-4 shadow-lg shadow-amber-500/5"
+                className="border-amber-300 dark:border-amber-500/30 bg-white dark:bg-zinc-950/90 p-5 space-y-4 shadow-xs dark:shadow-lg dark:shadow-amber-500/5"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-800">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-zinc-800">
                   <div className="flex items-center gap-2.5">
-                    <span className="p-1.5 rounded-md bg-amber-500/20 text-amber-400">
+                    <span className="p-1.5 rounded-md bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400">
                       <ShieldAlert className="h-4 w-4" />
                     </span>
                     <div>
-                      <h4 className="text-sm font-bold text-white font-mono">{item.actionType}</h4>
-                      <p className="text-xs text-zinc-400">
-                        Agent: <strong className="text-zinc-200">{item.agentName}</strong> • Étape : {item.stepName}
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white font-mono">{item.actionType}</h4>
+                      <p className="text-xs text-slate-500 dark:text-zinc-400">
+                        Agent: <strong className="text-slate-800 dark:text-zinc-200">{item.agentName}</strong> • Étape : {item.stepName}
                       </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+                  <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-zinc-400">
                     <Clock className="h-3.5 w-3.5" />
                     <span>Reçu à {item.createdAt.slice(11, 19)}</span>
                   </div>
@@ -100,10 +100,10 @@ export const ApprovalsView: React.FC = () => {
 
                 {/* Payload Summary preview */}
                 <div>
-                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block mb-1.5">
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400 uppercase tracking-wider block mb-1.5">
                     Détails du Payload d&apos;Action Sensible :
                   </span>
-                  <pre className="p-3.5 rounded-lg bg-zinc-900/80 border border-zinc-800 text-xs font-mono text-amber-200/90 overflow-x-auto">
+                  <pre className="p-3.5 rounded-lg bg-slate-900 dark:bg-zinc-900/80 border border-slate-800 dark:border-zinc-800 text-xs font-mono text-amber-300 dark:text-amber-200/90 overflow-x-auto">
                     {JSON.stringify(item.payloadSummary, null, 2)}
                   </pre>
                 </div>
@@ -149,26 +149,26 @@ export const ApprovalsView: React.FC = () => {
 
       {/* History of Past Decisions */}
       <div className="space-y-3 pt-4">
-        <h3 className="text-sm font-semibold text-white">Historique Récent des Décisions</h3>
-        <Card className="border-zinc-800/80 bg-zinc-950/70 p-4">
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Historique Récent des Décisions</h3>
+        <Card className="border-slate-200/90 dark:border-zinc-800/80 bg-white dark:bg-zinc-950/70 p-4 shadow-xs dark:shadow-none">
           <div className="space-y-2.5">
             {decidedApprovals.map((item) => (
               <div
                 key={item.id}
-                className="p-3 rounded-lg border border-zinc-800/70 bg-zinc-900/40 flex flex-wrap items-center justify-between gap-3 text-xs"
+                className="p-3 rounded-lg border border-slate-200 dark:border-zinc-800/70 bg-slate-50 dark:bg-zinc-900/40 flex flex-wrap items-center justify-between gap-3 text-xs"
               >
                 <div className="flex items-center gap-3">
                   <Badge variant={item.status === "APPROVED" ? "success" : "destructive"}>
                     {item.status === "APPROVED" ? "Approuvé" : "Rejeté"}
                   </Badge>
                   <div>
-                    <span className="font-semibold text-zinc-200">{item.actionType}</span>
-                    <span className="text-zinc-400 ml-2">({item.agentName})</span>
+                    <span className="font-semibold text-slate-800 dark:text-zinc-200">{item.actionType}</span>
+                    <span className="text-slate-500 dark:text-zinc-400 ml-2">({item.agentName})</span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 text-zinc-400 text-[11px]">
-                  <span>Par : <strong className="text-zinc-200">{item.decidedBy || "Admin"}</strong></span>
+                <div className="flex items-center gap-4 text-slate-500 dark:text-zinc-400 text-[11px]">
+                  <span>Par : <strong className="text-slate-700 dark:text-zinc-200">{item.decidedBy || "Admin"}</strong></span>
                   <span>Motif : &quot;{item.reason || "N/A"}&quot;</span>
                   <span className="font-mono">{item.decidedAt?.slice(11, 19)}</span>
                 </div>

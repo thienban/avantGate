@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { SessionRun, ApprovalItem } from "../types/telemetry";
+import { ModelPricingItem } from "../types/pricing";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "gatewall.db");
@@ -9,7 +10,7 @@ const JSON_BACKUP_FILE = path.join(DATA_DIR, "gatewall-store.json");
 interface SqliteInstance {
   exec: (sql: string) => void;
   prepare: (sql: string) => {
-    run: (...params: unknown[]) => void;
+    run: (...params: unknown[]) => unknown;
     all: (...params: unknown[]) => unknown[];
     get: (...params: unknown[]) => unknown;
   };
@@ -69,6 +70,20 @@ const initSqlite = (): SqliteInstance | null => {
         decided_by TEXT,
         reason TEXT
       );
+
+      CREATE TABLE IF NOT EXISTS model_pricing (
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        prompt_usd_per_million REAL NOT NULL,
+        completion_usd_per_million REAL NOT NULL,
+        cache_hit_usd_per_million REAL,
+        is_active INTEGER DEFAULT 1,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (provider, model)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_model_pricing_lookup 
+      ON model_pricing(provider, model, is_active);
     `);
 
     dbInstance = db;
@@ -84,18 +99,24 @@ const initSqlite = (): SqliteInstance | null => {
 interface JsonStoragePayload {
   sessions: SessionRun[];
   approvals: ApprovalItem[];
+  pricing?: ModelPricingItem[];
 }
 
 const readJsonFallback = (): JsonStoragePayload => {
   ensureDataDir();
   if (!fs.existsSync(JSON_BACKUP_FILE)) {
-    return { sessions: [], approvals: [] };
+    return { sessions: [], approvals: [], pricing: [] };
   }
   try {
     const raw = fs.readFileSync(JSON_BACKUP_FILE, "utf-8");
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    return {
+      sessions: parsed.sessions || [],
+      approvals: parsed.approvals || [],
+      pricing: parsed.pricing || [],
+    };
   } catch {
-    return { sessions: [], approvals: [] };
+    return { sessions: [], approvals: [], pricing: [] };
   }
 };
 
@@ -277,4 +298,144 @@ export const persistApproval = (approval: ApprovalItem): void => {
   } catch (err) {
     console.error("[gateWall Storage] Failed to persist approval to SQLite:", err);
   }
+};
+
+// --- Model Pricing Storage API ---
+
+export const loadPersistedPricing = (): ModelPricingItem[] => {
+  const db = initSqlite();
+  if (!db || useJsonFallback) {
+    return readJsonFallback().pricing || [];
+  }
+
+  try {
+    const stmt = db.prepare(`
+      SELECT provider, model, prompt_usd_per_million, completion_usd_per_million, 
+             cache_hit_usd_per_million, is_active, updated_at
+      FROM model_pricing
+      ORDER BY provider ASC, model ASC
+    `);
+    const rows = stmt.all() as {
+      provider: string;
+      model: string;
+      prompt_usd_per_million: number;
+      completion_usd_per_million: number;
+      cache_hit_usd_per_million: number | null;
+      is_active: number;
+      updated_at: string;
+    }[];
+
+    return rows.map((r) => ({
+      provider: r.provider,
+      model: r.model,
+      promptUSDPerMillion: Number(r.prompt_usd_per_million),
+      completionUSDPerMillion: Number(r.completion_usd_per_million),
+      cacheHitUSDPerMillion: r.cache_hit_usd_per_million != null ? Number(r.cache_hit_usd_per_million) : undefined,
+      isActive: Boolean(r.is_active),
+      updatedAt: r.updated_at,
+    }));
+  } catch (err) {
+    console.error("[gateWall Storage] Failed to load model pricing from SQLite:", err);
+    return readJsonFallback().pricing || [];
+  }
+};
+
+export const persistPrice = (item: ModelPricingItem): void => {
+  const db = initSqlite();
+  if (!db || useJsonFallback) {
+    const data = readJsonFallback();
+    if (!data.pricing) data.pricing = [];
+    const index = data.pricing.findIndex(
+      (p) => p.provider.toLowerCase() === item.provider.toLowerCase() && p.model.toLowerCase() === item.model.toLowerCase()
+    );
+    if (index >= 0) {
+      data.pricing[index] = item;
+    } else {
+      data.pricing.unshift(item);
+    }
+    writeJsonFallback(data);
+    return;
+  }
+
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO model_pricing (
+        provider, model, prompt_usd_per_million, completion_usd_per_million, 
+        cache_hit_usd_per_million, is_active, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(provider, model) DO UPDATE SET
+        prompt_usd_per_million = excluded.prompt_usd_per_million,
+        completion_usd_per_million = excluded.completion_usd_per_million,
+        cache_hit_usd_per_million = excluded.cache_hit_usd_per_million,
+        is_active = excluded.is_active,
+        updated_at = excluded.updated_at;
+    `);
+
+    stmt.run(
+      item.provider.trim().toLowerCase(),
+      item.model.trim().toLowerCase(),
+      item.promptUSDPerMillion,
+      item.completionUSDPerMillion,
+      item.cacheHitUSDPerMillion ?? null,
+      item.isActive ? 1 : 0,
+      item.updatedAt || new Date().toISOString()
+    );
+  } catch (err) {
+    console.error("[gateWall Storage] Failed to persist model price to SQLite:", err);
+  }
+};
+
+export const deletePersistedPrice = (provider: string, model: string): boolean => {
+  const normProvider = provider.trim().toLowerCase();
+  const normModel = model.trim().toLowerCase();
+
+  const db = initSqlite();
+  if (!db || useJsonFallback) {
+    const data = readJsonFallback();
+    if (!data.pricing) return false;
+    const initialLen = data.pricing.length;
+    data.pricing = data.pricing.filter(
+      (p) => !(p.provider.toLowerCase() === normProvider && p.model.toLowerCase() === normModel)
+    );
+    writeJsonFallback(data);
+    return data.pricing.length < initialLen;
+  }
+
+  try {
+    const stmt = db.prepare("DELETE FROM model_pricing WHERE provider = ? AND model = ?");
+    const result = stmt.run(normProvider, normModel) as { changes?: number };
+    return Boolean(result && typeof result.changes === "number" && result.changes > 0);
+  } catch (err) {
+    console.error("[gateWall Storage] Failed to delete model price from SQLite:", err);
+    return false;
+  }
+};
+
+export const seedPersistedPricing = (force: boolean = false): number => {
+  const defaults: Array<Omit<ModelPricingItem, "updatedAt">> = [
+    { provider: "deepseek", model: "deepseek-chat", promptUSDPerMillion: 0.14, completionUSDPerMillion: 0.28, cacheHitUSDPerMillion: 0.014, isActive: true },
+    { provider: "deepseek", model: "deepseek-reasoner", promptUSDPerMillion: 0.55, completionUSDPerMillion: 2.19, cacheHitUSDPerMillion: 0.14, isActive: true },
+    { provider: "mistral", model: "mistral-small-latest", promptUSDPerMillion: 0.20, completionUSDPerMillion: 0.60, isActive: true },
+    { provider: "mistral", model: "mistral-large-latest", promptUSDPerMillion: 2.00, completionUSDPerMillion: 6.00, isActive: true },
+    { provider: "openai", model: "gpt-4o-mini", promptUSDPerMillion: 0.15, completionUSDPerMillion: 0.60, isActive: true },
+    { provider: "openai", model: "gpt-4o", promptUSDPerMillion: 2.50, completionUSDPerMillion: 10.00, isActive: true },
+    { provider: "openrouter", model: "anthropic/claude-3.5-sonnet", promptUSDPerMillion: 3.00, completionUSDPerMillion: 15.00, isActive: true },
+    { provider: "ollama", model: "all-models", promptUSDPerMillion: 0.0, completionUSDPerMillion: 0.0, isActive: true },
+  ];
+
+  let count = 0;
+  const existing = loadPersistedPricing();
+  if (existing.length > 0 && !force) {
+    return 0;
+  }
+
+  for (const item of defaults) {
+    persistPrice({
+      ...item,
+      updatedAt: new Date().toISOString(),
+    });
+    count++;
+  }
+
+  return count;
 };

@@ -42,6 +42,7 @@ export const useAvantGateTelemetry = (
       batchIntervalMs: options.batchIntervalMs ?? 3000,
       maxBatchSize: options.maxBatchSize ?? 20,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runId is updated dynamically via exporter.setRunId below
   }, [
     options.publicKey,
     options.endpoint,

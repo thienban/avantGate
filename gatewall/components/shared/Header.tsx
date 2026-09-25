@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Play, Shield, Activity } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { QUERY_KEYS } from "@/hooks/useTelemetry";
+import { ThemeToggle } from "./ThemeToggle";
 
 export interface HeaderProps {
   title: string;
@@ -96,24 +97,27 @@ export const Header: React.FC<HeaderProps> = ({ title, description }) => {
   };
 
   return (
-    <header className="border-b border-zinc-800/80 bg-zinc-950/40 px-8 py-4 backdrop-blur-md flex items-center justify-between">
+    <header className="border-b border-slate-200/80 dark:border-zinc-800/80 bg-white/80 dark:bg-zinc-950/40 px-6 sm:px-8 py-4 backdrop-blur-md flex flex-wrap items-center justify-between gap-4 transition-colors">
       <div>
-        <h1 className="text-xl font-bold text-white tracking-tight">{title}</h1>
-        {description && <p className="text-xs text-zinc-400 mt-0.5">{description}</p>}
+        <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">{title}</h1>
+        {description && <p className="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">{description}</p>}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         {/* Free Plan Badge */}
-        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-500/20 bg-emerald-950/20 text-xs font-mono text-emerald-300">
-          <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+        <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg border border-emerald-500/20 bg-emerald-50 dark:bg-emerald-950/20 text-xs font-mono text-emerald-800 dark:text-emerald-300">
+          <span className="h-2 w-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse" />
           <span>Plan Free • 50k req/m</span>
         </div>
 
         {/* Security badge */}
-        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-950/20 text-xs text-indigo-300">
-          <Shield className="h-3.5 w-3.5 text-indigo-400" />
+        <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-indigo-500/20 bg-indigo-50 dark:bg-indigo-950/20 text-xs text-indigo-800 dark:text-indigo-300">
+          <Shield className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
           <span>Isolation PII Active</span>
         </div>
+
+        {/* Theme Toggle */}
+        <ThemeToggle />
 
         {/* Live Simulation button */}
         <Button
@@ -121,17 +125,17 @@ export const Header: React.FC<HeaderProps> = ({ title, description }) => {
           size="sm"
           onClick={handleSimulateAgentRun}
           disabled={isSimulating}
-          className="border border-zinc-700 bg-zinc-900 text-xs hover:bg-zinc-800"
+          className="border border-slate-200 bg-white hover:bg-slate-100 text-slate-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800 text-xs shadow-xs"
         >
           {isSimulating ? (
             <>
-              <Activity className="h-3.5 w-3.5 animate-spin text-indigo-400" />
+              <Activity className="h-3.5 w-3.5 animate-spin text-indigo-500 dark:text-indigo-400" />
               <span>{simMessage || "Simulation..."}</span>
             </>
           ) : (
             <>
-              <Play className="h-3.5 w-3.5 text-indigo-400 fill-indigo-400" />
-              <span>Simuler un Run Télémétrique</span>
+              <Play className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400 fill-indigo-500 dark:fill-indigo-400" />
+              <span>Simuler un Run</span>
             </>
           )}
         </Button>
@@ -139,3 +143,4 @@ export const Header: React.FC<HeaderProps> = ({ title, description }) => {
     </header>
   );
 };
+
