@@ -86,17 +86,12 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 
 ## 🚀 Key Security & Defense Features
 
-- 🛡️ **Active Threat Defense & Prompt Guardrails**: Blocks prompt injections, DAN jailbreaks, adversarial noise, and system prompt exfiltration *before* external API invocation.
-- 🔒 **Zero-Egress Data Loss Prevention (DLP)**: Automated local redaction of emails, phone numbers, IBAN/BIC, and French/EU identifiers (NIR SSN, SPI tax ID) before network egress.
-- ⚡ **Deterministic Workflow Engine (`avantgate/workflow`)**: In-process sequential state machine for multi-step agent orchestrations. Features automatic reverse compensation (Saga Pattern), non-blocking Human-in-the-Loop checkpoints, and safe-by-default AI tool conversion (`asTool()`).
-- 🎭 **Dual-Channel Tool Isolation (`avantgate/agent`)**: Decouples sensitive database records (streamed out-of-band directly to client UIs) from minimal cognitive LLM context (`llmDto`), keeping confidential fields out of context windows.
-- 🛑 **Anti-IDOR & Multi-Tenant Defense**: Strict Row-Level Security, compile-time tenant tool enforcement (`createTenantTool`), post-fetch runtime assertions (`assertTenant`, `assertOwnership`), and native RBAC authorization at the agent tool boundary. See the [Anti-IDOR Architecture Guide](docs/anti-idor.md).
-- 💰 **Denial-of-Wallet & Pre-Flight Budgeting**: Enforces strict token and cent-level USD budget limits, rejecting abusive requests before paying for upstream inference.
-- 🔀 **Zero-Downtime Multi-Model Failover**: Seamless client-side failover to fallback providers (or local zero-cost Ollama) when upstream APIs return HTTP 429/500 errors.
-- 🔧 **Self-Repairing Structured Outputs**: Strict Zod schema compliance with automated heuristic markdown/JSON repair if the model hallucinates formatting.
-- 📡 **Zero-Dependency Telemetry Bridge (`HttpTelemetryExporter`, `PlatformStorageAdapter`)**: Mirror execution audits and hierarchical tool traces asynchronously without adding heavy external dependencies.
-- 🌐 **Lightweight Front-End SDK & React Hook (`avantgate/client`)**: Micro-bundle (< 1.7 KB gzipped) for browser UIs. Captures client-side security alerts (blocked API keys, prompt injection attempts), UI render metrics, and user feedback, streaming them directly to gateWall via `fetch(keepalive)` without loading backend infrastructure.
-- 📦 **100% Framework Agnostic**: Works seamlessly in Next.js, Express, Fastify, NestJS, Cloudflare Workers, AWS Lambda, or CLI scripts.
+| Pillar | Core Capabilities & Architecture |
+|---|---|
+| 🛡️ **AI-WAF & Privacy** | • **Prompt Guardrails**: Blocks prompt injections, jailbreaks & exfiltration *pre-flight*.<br/>• **Zero-Egress DLP**: In-process redaction of emails, phone numbers, IBANs & EU tax IDs.<br/>• **Self-Repairing Outputs**: Native Zod validation with automatic JSON heuristic repair. |
+| 🛑 **Agent Isolation & Anti-IDOR** | • **Dual-Channel DTOs**: Streams full records to UI while injecting sanitized summaries into LLM.<br/>• **Anti-IDOR Boundary**: Compile-time tenant scoping (`createTenantTool`) & runtime ownership checks.<br/>• **Infinite Loop Shield**: Detects and breaks recursive agent tool execution loops. |
+| 💰 **FinOps & Resilience** | • **Denial-of-Wallet**: Enforces hard token & USD budgets *before* external inference spend.<br/>• **Multi-Model Failover**: Instant client-side routing to fallback models or local Ollama on 429/500.<br/>• **Live Cost Ledger**: Token burn calculation & pricing adapters with zero external DB. |
+| ⚡ **Sagas & Telemetry** | • **Deterministic Sagas (`avantgate/workflow`)**: In-process FSM with automatic reverse compensation ($k-1 \to 0$).<br/>• **Human-in-the-Loop (HITL)**: Non-blocking suspension & approval queues for high-risk tools.<br/>• **Lightweight Telemetry (`avantgate/client`)**: < 1.7 KB client SDK & async audit bridge to GateWall. |
 
 ---
 
@@ -153,19 +148,6 @@ yarn add avantgate zod
 
 ---
 
-## 📖 Documentation & Guides
-
-Comprehensive guides, copy-pasteable integration recipes, and architectural references are available in the dedicated documentation:
-
-| Guide | Description |
-|---|---|
-| **[Deterministic Workflow Engine](docs/workflow.md)** | Zero-infra Saga orchestrator, linear FSM rationale, reverse compensation, HITL checkpoints & agent tool conversion. |
-| **[Code Examples & Recipes](docs/examples.md)** | End-to-end security guardrails, PII redaction, anti-IDOR tool boundaries, cost tracking, Zod self-repair, and multi-model failover. |
-| **[Decoupled Pricing & DB Adapters](docs/pricing.md)** | Dynamic token pricing, database integration (Prisma / PostgreSQL / Drizzle), in-memory TTL caching, and runtime overrides. |
-| **[Durable Agent Harness & Tool Isolation](docs/agent.md)** | Serverless durable step execution, Human-in-the-Loop suspension, dual-channel DTO tool isolation, and telemetry streaming. |
-
----
-
 ## 🏗️ Architecture & Extensibility
 
 AvantGate is built around clean **Ports and Adapters**:
@@ -177,41 +159,7 @@ AvantGate is built around clean **Ports and Adapters**:
 
 ## 🗺️ Roadmap & Milestones
 
-### 🎯 Core Control Plane (`avantgate`)
-
-1. ⏱️ **In-Process Sliding-Window Rate Limiter & User Quotas**
-   - In-memory token bucket per User ID, IP address, or session without Redis.
-   - Per-user daily & hourly token budget limits with automatic graceful throttling.
-
-2. 🔒 **Bidirectional Sanitizer & Secret Leak Prevention**
-   - Extend PII protection from input queries to **model outputs and audit logs**.
-   - Active inspection to prevent LLM hallucinations from leaking server credentials, environment variables (`sk-...`, JWTs), or raw system instructions to client frontends.
-
-3. ⚡ **Spend Velocity Circuit Breaker & Exponential Backoff**
-   - Real-time spend velocity detection (trips if spend exceeds $X within Y minutes).
-   - Configurable exponential backoff retries before triggering provider failover.
-   - Safe degradation returning user-friendly messages instead of raw provider crashes.
-
-4. ⚖️ **Real-Time Evaluation Quality Gates**
-   - Replace gut-feel and vibe-based evaluations with in-process, measurable output quality gates.
-   - Built-in sub-millisecond heuristic gates:
-     - **Refusal & Boilerplate Gate**: Detects unwanted refusal phrasing (*"As an AI..."*) and triggers fallback.
-     - **Context Grounding Gate**: Verifies factual entity containment against supplied reference text.
-   - Automated corrective retry loop (`onFailure: "retry_with_feedback"`) or instant model failover.
-
-5. 🔌 **Lifecycle Middleware Hooks (`beforeRequest`, `afterResponse`)**
-   - Extensible middleware pipeline to inspect, enrich, or modify prompts and completions without modifying core logic.
-   - Universal hook allowing any external RAG system or context engine to compose with AvantGate seamlessly.
-
-6. 🚀 **One-Line Launch-Safe Presets (`PRESETS.LAUNCH_SAFE`)**
-   - Zero-config hardened setup with sensible defaults for security, budgets, and failovers.
-
-### 📦 Modular Ecosystem & Extensions
-
-- **`avantgate/workflow`**: Deterministic sequential state machine, automatic reverse Saga rollback ($k-1 \to 0$), and durable HITL checkpoints.
-- **`avantgate/agent`**: Zero-infra durable step orchestration, human-in-the-loop pauses, and dual-channel PII tool isolation.
-- **`avantgate/finance`**: Zero-overhead financial accounting normalizer across international jurisdictions (FR PCG, US GAAP, UK IFRS, Swiss CO).
-- **Launch Readiness Linter**: Standalone developer tool to audit codebases before launch for exposed keys, unbudgeted endpoints, and missing guards.
+Interested in upcoming features (output DLP & secret leak guard, lifecycle hooks, launch-safe presets) or release history See [**ROADMAP.md**](ROADMAP.md).
 
 ---
 

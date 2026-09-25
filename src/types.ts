@@ -59,8 +59,19 @@ export class BudgetExceededError extends Error {
   }
 }
 
+export class SecretLeakBlockedError extends Error {
+  readonly detections?: Array<{ type: string; matchedCount: number }>;
+
+  constructor(message: string, detections?: Array<{ type: string; matchedCount: number }>) {
+    super(message);
+    this.name = "SecretLeakBlockedError";
+    this.detections = detections;
+  }
+}
+
 export { ConfigurationError as AvantGateConfigurationError };
 export { BudgetExceededError as AvantGateBudgetExceededError };
+export { SecretLeakBlockedError as AvantGateSecretLeakBlockedError };
 
 export interface ProviderConfig {
   provider: "deepseek" | "mistral" | "openai" | "ollama" | "openrouter" | "custom";
@@ -75,6 +86,9 @@ export interface SecurityConfig {
   detectPromptInjection?: boolean;
   maskPII?: boolean;
   maxInputLength?: number;
+  outputDLP?: boolean;
+  blockSecretLeaks?: boolean;
+  secretLeakAction?: "REDACT" | "BLOCK";
 }
 
 export interface RetryConfig {

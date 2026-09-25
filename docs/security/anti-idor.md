@@ -1,113 +1,113 @@
 # 🛡️ Anti-IDOR Defense & Multi-Tenant Confinement in AI Agents
 
-Ce document présente l'architecture de sécurité, les principes de défense en profondeur et les bonnes pratiques pour protéger les outils d'Agents IA contre les vulnérabilités **IDOR** (*Insecure Direct Object Reference*) et les fuites de données inter-tenants (*Cross-Tenant Data Leaks*).
+This document details the security architecture, defense-in-depth principles, and best practices for protecting AI Agent tools against **IDOR** (*Insecure Direct Object Reference*) vulnerabilities and cross-tenant data leaks.
 
 ---
 
-## 🎯 1. La Problématique : Pourquoi les LLMs sont Vulnérables aux IDOR ?
+## 🎯 1. The Problem: Why are LLMs Vulnerable to IDOR?
 
-Dans une architecture d'agent IA (ex: Vercel AI SDK, LangChain, AutoGen), le modèle de langage (LLM) agit comme un routeur d'actions : il analyse la requête utilisateur et choisit les outils à exécuter avec des arguments précis.
+In an AI agent architecture (e.g., Vercel AI SDK, LangChain, AutoGen), the large language model (LLM) acts as an action router: it parses the user query and selects which tools to call along with their exact arguments.
 
 > [!WARNING]
-> **Le LLM est une frontière non fiable (*Untrusted Boundary*).**  
-> Même avec des prompts systèmes stricts, des attaques par **Prompt Injection** (directe ou indirecte via des documents externes) peuvent manipuler le LLM pour lui faire deviner, énumérer ou injecter des identifiants appartenant à d'autres organisations.
+> **The LLM is an Untrusted Boundary.**  
+> Even with strict system prompts, **Prompt Injection** attacks (direct or indirect via external documents) can manipulate the model into guessing, enumerating, or injecting identifiers belonging to other organizations.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Attacker as 🦹 Attaquant (Tenant A)
-    participant LLM as 🤖 Modèle LLM (Untrusted)
+    actor Attacker as 🦹 Attacker (Tenant A)
+    participant LLM as 🤖 LLM Model (Untrusted)
     participant Tool as ⚙️ Agent Tool
-    participant DB as 🗄️ Base Multi-Tenant
+    participant DB as 🗄️ Multi-Tenant DB
 
-    Attacker->>LLM: "Affiche la facture confidentielle INV-999" (Appartient à Tenant B)
-    Note over LLM: LLM berné ou complice<br/>génère tool_call: { invoiceId: "INV-999" }
+    Attacker->>LLM: "Show confidential invoice INV-999" (Belongs to Tenant B)
+    Note over LLM: LLM tricked or compliant<br/>generates tool_call: { invoiceId: "INV-999" }
     LLM->>Tool: execute({ invoiceId: "INV-999" })
-    Tool->>DB: findById("INV-999") (Sans filtre tenant !)
-    DB-->>Tool: Facture secrète de Tenant B !
-    Tool-->>LLM: 💥 FUITE DE DONNÉES CROSS-TENANT !
-    LLM-->>Attacker: L'attaquant lit la facture de son concurrent
+    Tool->>DB: findById("INV-999") (No tenant filter!)
+    DB-->>Tool: Tenant B's secret invoice!
+    Tool-->>LLM: 💥 CROSS-TENANT DATA LEAK!
+    LLM-->>Attacker: Attacker reads competitor's invoice
 ```
 
-### ❌ L'Anti-Pattern Classique : Le paramètre fourni par le modèle
+### ❌ The Classic Anti-Pattern: Model-Supplied Tenancy Parameter
 
-L'erreur la plus répandue consiste à demander le `tenantId` dans les arguments du schéma Zod de l'outil :
+The most widespread flaw consists in asking for `tenantId` in the tool's Zod parameters schema:
 
 ```typescript
-// ❌ VULNÉRABLE : Ne faites jamais cela !
+// ❌ VULNERABLE: Never do this!
 parameters: z.object({
   invoiceId: z.string(),
-  tenantId: z.string(), // 🚨 Demander le tenantId au LLM !
+  tenantId: z.string(), // 🚨 Asking the LLM to supply tenantId!
 }),
 dataAccessGuard: (args, context) => args.tenantId === context.tenantId,
 execute: async (args) => {
-  return await db.invoices.findById(args.invoiceId); // 🚨 Aucun filtre dans la DB !
+  return await db.invoices.findById(args.invoiceId); // 🚨 No filter in the DB query!
 }
 ```
 
-**Pourquoi ce code est faillible ?**  
-Un attaquant du Tenant `A` demande la facture `INV-999` (qui appartient au Tenant `B`). Le LLM injecte docilement `tenantId: "tenant_A"` (son propre tenant) et `invoiceId: "INV-999"`. Le guard valide que `"tenant_A" === "tenant_A"` et la base retourne la facture de `B`. L'isolation reposait sur l'honnêteté du LLM plutôt que sur le système de données.
+**Why is this code flawed?**  
+An attacker from Tenant `A` requests invoice `INV-999` (which belongs to Tenant `B`). The LLM compliantly injects `tenantId: "tenant_A"` (its own tenant) and `invoiceId: "INV-999"`. The guard validates that `"tenant_A" === "tenant_A"` and the database returns Tenant `B`'s invoice. Multi-tenant isolation was trusting the honesty of the LLM rather than enforcing it at the data layer.
 
 ---
 
-## 🏛️ 2. Architecture de Défense en Profondeur (3 Niveaux)
+## 🏛️ 2. Three-Tier Defense-in-Depth Architecture
 
-Pour garantir une isolation étanche, AvantGate applique le principe de **Défense en Profondeur** sur 3 niveaux indépendants :
+To guarantee airtight isolation, AvantGate applies the **Defense-in-Depth** principle across 3 independent tiers:
 
 ```mermaid
 flowchart TD
-    subgraph Level1 ["1. Infrastructure / Session Contexte"]
-        JWT["Token Session / JWT vérifié côté serveur"] --> Ctx["ToolExecutionContext<br/>{ tenantId: 'tenant_A', roles: ['FINANCE'] }"]
+    subgraph Level1 ["1. Infrastructure / Session Context"]
+        JWT["Server-Verified Session Token / JWT"] --> Ctx["ToolExecutionContext<br/>{ tenantId: 'tenant_A', roles: ['FINANCE'] }"]
     end
 
-    subgraph Level2 ["2. Data Layer / Requête Scoped"]
+    subgraph Level2 ["2. Data Layer / Scoped Query"]
         Ctx --> DBQuery["db.invoices.findOne({ id, tenantId: ctx.tenantId })"]
     end
 
     subgraph Level3 ["3. AvantGate Runtime Interceptor (Fail-Safe)"]
-        DBQuery --> Raw["Enregistrement brut récupéré"]
-        Raw --> Assertion{"assertTenant OU assertOwnership ?"}
-        Assertion -- Mismatch / Fraud --> Block["💥 ToolAccessDeniedError<br/>Connexion coupée, zéro fuite"]
-        Assertion -- Conforme --> DTO["🎭 Projection llmDto (Données minimales masquées)"]
+        DBQuery --> Raw["Fetched raw database record"]
+        Raw --> Assertion{"assertTenant OR assertOwnership?"}
+        Assertion -- Mismatch / Fraud --> Block["💥 ToolAccessDeniedError<br/>Connection severed, zero leak"]
+        Assertion -- Compliant --> DTO["🎭 Projection llmDto (Minimal sanitized data)"]
     end
 
-    DTO --> LLMOut["🤖 Réponse sûre au LLM"]
+    DTO --> LLMOut["🤖 Safe Response to LLM"]
 ```
 
-### Niveau 1 : Contexte de Session d'Infrastructure (Inviolable)
-Le `tenantId`, le `userId` et les `roles` de l'appelant sont résolus côté serveur (depuis la session HTTP, le JWT ou la clé d'API) et injectés dans le [`ToolExecutionContext`](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/src/agent/types.ts). Le LLM n'a aucun accès en écriture sur cet objet.
+### Level 1: Infrastructure Session Context (Tamper-Proof)
+The caller's `tenantId`, `userId`, and `roles` are resolved on the server side (from the HTTP session, JWT, or API key) and injected into the [`ToolExecutionContext`](file:///c:/Users/Bui/Desktop/DevProjets/avantGate/src/agent/types.ts). The LLM has zero write access to this object.
 
-### Niveau 2 : Requêtes Scoped en Base de Données
-La méthode `execute(args, context)` doit obligatoirement inclure `context.tenantId` dans sa clause `WHERE` SQL ou son filtre ORM :
+### Level 2: Scoped Database Queries
+The tool's `execute(args, context)` implementation must include `context.tenantId` in its SQL `WHERE` clause or ORM filter:
 ```typescript
 const record = await db.invoices.findOne({
   where: { id: args.invoiceId, tenantId: context.tenantId }
 });
 ```
 
-### Niveau 3 : Le Filet de Sécurité Runtime AvantGate
-Même si un développeur oublie le filtre tenant dans sa requête SQL ou utilise une bibliothèque externe sans support multi-tenant, AvantGate intercepte le résultat **avant** qu'il ne soit projeté vers `llmDto` ou envoyé au client UI via `clientDto`.
+### Level 3: AvantGate Runtime Safety Net
+Even if a developer forgets the tenant filter in their SQL query or uses a third-party library lacking multi-tenant support, AvantGate intercepts the returned record **before** it is projected to `llmDto` or streamed to the client UI via `clientDto`.
 
 ---
 
-## 🔒 3. Compile-Time vs Runtime : Le choix de la Factory
+## 🔒 3. Compile-Time vs Runtime: Choosing the Right Factory
 
-AvantGate propose deux fonctions de création d'outils adaptées à votre niveau d'exigence :
+AvantGate provides two tool creation factories tailored to your security requirements:
 
-| Caractéristique | `createIsolatedTool()` | `createTenantTool()` (Recommandé) |
+| Feature | `createIsolatedTool()` | `createTenantTool()` (Recommended) |
 |---|---|---|
-| **Cible** | Outils généraux, utilitaires (calcul, météo, FAQ) | Données d'entreprises, factures, dossiers clients, santé |
-| **Assertion Anti-IDOR** | Optionnelle | **Obligatoire au Compile-Time** (Refus `tsc` si omise) |
-| **RBAC Natif** | Inclus (`roles`) | Inclus (`roles`) |
-| **Protection PII / DTO** | Inclus | Inclus |
+| **Target** | General utilities (math, weather, FAQ) | Enterprise data, invoices, CRM records, healthcare |
+| **Anti-IDOR Assertion** | Optional | **Mandatory at Compile-Time** (`tsc` error if omitted) |
+| **Native RBAC** | Included (`roles`) | Included (`roles`) |
+| **PII Protection / DTO** | Included | Included |
 
-### Exemple avec `createTenantTool` (Enforcement au Compile-Time) :
+### Example with `createTenantTool` (Compile-Time Enforcement):
 
 ```typescript
 import { createTenantTool, dto } from "avantgate/agent";
 import { z } from "zod";
 
-// ❌ TypeScript REFUSE de compiler ce code si assertTenant est oublié :
+// ❌ TypeScript REFUSES to compile this code if assertTenant is omitted:
 // Error: Property 'assertTenant' is missing in type...
 export const badInvoiceTool = createTenantTool({
   name: "get_invoice",
@@ -117,44 +117,44 @@ export const badInvoiceTool = createTenantTool({
   }
 });
 
-// ✅ Code Conforme et Totalement Sécurisé :
+// ✅ Compliant and Fully Secured Code:
 export const secureInvoiceTool = createTenantTool({
   name: "get_invoice",
   domain: "billing",
-  roles: ["FINANCE", "ADMIN"], // 🔐 RBAC vérifié automatiquement
+  roles: ["FINANCE", "ADMIN"], // 🔐 Native RBAC enforced automatically
   parameters: z.object({ invoiceId: z.string() }),
 
-  // 🛡️ Obligation Compile-Time : extraction du tenant propriétaire
+  // 🛡️ Compile-Time Requirement: extracts the owner tenantId
   assertTenant: (invoice) => invoice.tenantId,
 
   async execute(args, context) {
     const invoice = await db.invoices.findOne({
       where: { id: args.invoiceId, tenantId: context.tenantId }
     });
-    if (!invoice) throw new Error("Facture introuvable");
+    if (!invoice) throw new Error("Invoice not found");
     return invoice;
   },
 
-  // 🎭 Confinement LLM : le modèle ne reçoit que les champs strictement nécessaires
+  // 🎭 LLM Confinement: the model only receives strictly necessary fields
   llmDto: dto.pick(["invoiceId", "totalAmount", "status"]),
 });
 ```
 
 ---
 
-## 🧩 4. Modèles de Données Complexes : Utiliser `assertOwnership`
+## 🧩 4. Complex Data Models: Using `assertOwnership`
 
-Dans de nombreuses architectures, une ressource n'a pas un champ plat `record.tenantId`. AvantGate fournit le prédicat universel **`assertOwnership`** (synchrone ou asynchrone).
+In many architectures, a resource does not carry a flat `record.tenantId` field. AvantGate provides the universal **`assertOwnership`** predicate (synchronous or asynchronous).
 
-### Cas 1 : Relations Indirectes / Imbriquées (Facture ➔ Client ➔ Tenant)
-Quand la facture est rattachée à un client qui lui-même est rattaché au tenant de l'organisation :
+### Case 1: Indirect / Nested Relationships (Invoice ➔ Customer ➔ Tenant)
+When an invoice belongs to a customer who in turn belongs to an organization's tenant:
 
 ```typescript
 export const getInvoiceDetailTool = createTenantTool({
   name: "get_invoice_detail",
   parameters: z.object({ invoiceId: z.string() }),
 
-  // 🔍 Navigation dans les relations imbriquées :
+  // 🔍 Navigating nested relationships:
   assertOwnership: (invoice, context) => {
     return invoice.customer?.organization?.tenantId === context.tenantId;
   },
@@ -170,15 +170,15 @@ export const getInvoiceDetailTool = createTenantTool({
 
 ---
 
-### Cas 2 : Modèles B2C / Centrés Utilisateur (`userId`)
-Sur une application B2C (e-commerce, santé, réseau social), les ressources n'appartiennent pas à une entreprise mais directement à un **utilisateur individuel** :
+### Case 2: B2C / User-Centric Models (`userId`)
+In B2C applications (e-commerce, healthcare, social networks), resources belong directly to an **individual user** rather than an organization:
 
 ```typescript
 export const getMedicalReportTool = createTenantTool({
   name: "get_medical_report",
   parameters: z.object({ reportId: z.string() }),
 
-  // 👤 Vérification de l'identité de l'utilisateur connecté :
+  // 👤 Verify the authenticated user's identity:
   assertOwnership: (report, context) => {
     return report.patientUserId === context.userId;
   },
@@ -191,15 +191,15 @@ export const getMedicalReportTool = createTenantTool({
 
 ---
 
-### Cas 3 : Ressources Partagées Multi-Propriétaires
-Pour les comptes bancaires joints, les dossiers partagés ou les documents collaboratifs :
+### Case 3: Shared Multi-Owner Resources
+For joint bank accounts, shared workspaces, or collaborative documents:
 
 ```typescript
 export const getSharedWorkspaceTool = createTenantTool({
   name: "get_workspace",
   parameters: z.object({ workspaceId: z.string() }),
 
-  // 👥 Vérifie si l'utilisateur fait partie des membres autorisés :
+  // 👥 Verify if the user belongs to authorized members:
   assertOwnership: (workspace, context) => {
     return workspace.memberUserIds.includes(context.userId as string);
   },
@@ -212,15 +212,15 @@ export const getSharedWorkspaceTool = createTenantTool({
 
 ---
 
-### Cas 4 : Vérification Asynchrone / Distante (Stripe, ACL externe)
-Quand la vérification nécessite un appel d'API ou une requête vers un service de permissions externe :
+### Case 4: Asynchronous / Remote Verification (Stripe, External ACLs)
+When ownership verification requires an API call or a lookup against an external permission service:
 
 ```typescript
 export const getStripeSubscriptionTool = createTenantTool({
   name: "get_subscription",
   parameters: z.object({ subscriptionId: z.string() }),
 
-  // 🌐 Résolution asynchrone sécurisée :
+  // 🌐 Secure asynchronous resolution:
   assertOwnership: async (subscription, context) => {
     const customer = await stripe.customers.retrieve(subscription.customerId);
     return customer.metadata.tenantId === context.tenantId;
@@ -234,36 +234,36 @@ export const getStripeSubscriptionTool = createTenantTool({
 
 ---
 
-## 🌐 5. Intégration dans la Chaîne de Sécurité End-to-End AvantGate
+## 🌐 5. Integration into the End-to-End AvantGate Security Chain
 
-La défense Anti-IDOR ne fonctionne pas en vase clos : elle constitue le **dernier rempart** d'une chaîne de sécurité complète de bout en bout (*Defense-in-Depth*) orchestrée par AvantGate :
+Anti-IDOR defense does not operate in isolation: it forms the **final barrier** in a comprehensive end-to-end security pipeline (*Defense-in-Depth*) orchestrated by AvantGate:
 
 ```mermaid
 flowchart LR
-    UserInput["1. Requête Utilisateur / Prompt"] --> InputGuard["2. Prompt Guardrails<br/>Neutralise injections & jailbreaks"]
-    InputGuard --> PIIShield["3. PII Redaction<br/>Masque emails, IBAN, NIR, SPI"]
-    PIIShield --> BudgetGuard["4. Pre-Flight Budget<br/>Bloque le déni de portefeuille"]
-    BudgetGuard --> LLM["5. Inférence LLM<br/>(DeepSeek, Mistral, OpenAI)"]
+    UserInput["1. User Request / Prompt"] --> InputGuard["2. Prompt Guardrails<br/>Neutralizes injections & jailbreaks"]
+    InputGuard --> PIIShield["3. PII Redaction<br/>Masks emails, IBAN, NIR, SPI"]
+    PIIShield --> BudgetGuard["4. Pre-Flight Budget<br/>Blocks Denial-of-Wallet"]
+    BudgetGuard --> LLM["5. LLM Inference<br/>(DeepSeek, Mistral, OpenAI)"]
     LLM --> ToolBoundary["6. Tool Boundary (Anti-IDOR)<br/>RBAC + assertTenant / assertOwnership"]
-    ToolBoundary --> DTO["7. Dual-Channel DTO<br/>UI reçoit le brut, LLM reçoit le minimal"]
+    ToolBoundary --> DTO["7. Dual-Channel DTO<br/>UI gets raw data, LLM gets minimal projection"]
 ```
 
-1. **Ingress Prompt Guardrails** : Empêche l'attaquant de manipuler le comportement cognitif du modèle via des attaques par injection ou exfiltration de prompt système ([Guide Prompt Guardrails](prompt-guardrails.md)).
-2. **In-Flight PII Redaction** : Masque localement les données privées (NIR, IBAN, téléphones, emails) avec 0 ms de latence réseau avant tout envoi externe ([Guide PII Redaction](pii-redaction.md)).
-3. **Pre-Flight Budgeting** : Protège contre les attaques de déni de portefeuille (*Denial-of-Wallet*) en plafonnant les coûts et tokens autorisés ([Guide Budget Guards](../finops/budget-guards.md)).
-4. **Tool Isolation & Anti-IDOR** : Empêche toute élévation horizontale de privilèges lors de l'exécution d'actions concrètes sur vos bases de données ou vos APIs.
-5. **Dual-Channel DTO** : Isole les données confidentielles restantes hors de la fenêtre de contexte du modèle (`llmDto`), tout en alimentant l'UI client en streaming sécurisé (`clientDto`).
+1. **Ingress Prompt Guardrails**: Prevents attackers from manipulating model cognition via prompt injection or system prompt extraction attacks ([Prompt Guardrails Guide](prompt-guardrails.md)).
+2. **In-Flight PII Redaction**: Locally redacts private identifiers (NIR, IBAN, phone numbers, emails) with 0 ms network latency prior to external transmission ([PII Redaction Guide](pii-redaction.md)).
+3. **Pre-Flight Budgeting**: Guards against Denial-of-Wallet attacks by enforcing token and cost caps before execution ([Budget Guards Guide](../finops/budget-guards.md)).
+4. **Tool Isolation & Anti-IDOR**: Prevents horizontal privilege escalation when executing actions against databases or APIs.
+5. **Dual-Channel DTO**: Keeps sensitive data out of the model's context window (`llmDto`), while safely streaming rich data to the client UI (`clientDto`).
 
-> 💡 **Exemple de code complet de bout en bout :** Consultez le [Guide End-to-End AI Security](end-to-end-security.md).
+> 💡 **Complete End-to-End Implementation:** Check the [End-to-End AI Security Guide](end-to-end-security.md).
 
 ---
 
-## 📋 6. Checklist de Sécurité pour les Développeurs
+## 📋 6. Developer Security Checklist
 
-Avant de déployer un outil d'Agent IA en production, validez systématiquement cette grille :
+Before deploying an AI Agent tool to production, systematically verify this checklist:
 
-- [ ] **Pas de `tenantId` dans `parameters`** : Ne jamais demander le tenant ou l'organisation dans le schéma Zod accessible au LLM.
-- [ ] **Utilisation de `createTenantTool`** : Préférer `createTenantTool` pour forcer la présence d'une assertion de propriété au moment de la compilation.
-- [ ] **Double Vérification (DB + Runtime)** : Filtrer en amont dans la base SQL/ORM avec `context.tenantId`, et déclarer `assertTenant` / `assertOwnership` comme filet de sécurité.
-- [ ] **Enforcement RBAC Natif** : Spécifier `roles: ["ADMIN", ...]` pour bloquer au runtime tout utilisateur non habilité.
-- [ ] **Projection DTO Minimale** : Utiliser `llmDto` (`dto.pick`, `dto.boolean`) pour ne renvoyer au prompt du LLM que le strict nécessaire et éliminer les clés techniques, identifiants internes ou données confidentielles.
+- [ ] **No `tenantId` in `parameters`**: Never request tenant or organization identifiers in the Zod schema exposed to the LLM.
+- [ ] **Use `createTenantTool`**: Prefer `createTenantTool` to enforce ownership assertions at compile-time.
+- [ ] **Dual Verification (DB + Runtime)**: Filter queries upstream in SQL/ORM using `context.tenantId`, and declare `assertTenant` / `assertOwnership` as a runtime safety net.
+- [ ] **Native RBAC Enforcement**: Specify `roles: ["ADMIN", ...]` to block unauthorized users at runtime.
+- [ ] **Minimal DTO Projections**: Use `llmDto` (`dto.pick`, `dto.boolean`) to return only the minimum data required by the LLM prompt, stripping internal keys, technical IDs, or sensitive fields.

@@ -15,6 +15,7 @@ import { sanitizePII } from "./sanitizer";
 import { calculateCostUSD, CachedPricingAdapter, resolveModelPriceAsync } from "./pricing";
 import { validateWithZod } from "./response-validator";
 import { createHttpProviderClient } from "./providers/http-client";
+import { applyOutputGuards } from "./secret-guard";
 
 interface ProviderDispatchOutput {
   responseText: string;
@@ -102,6 +103,23 @@ export class AvantGateControlLayer {
     }
 
     return userQuery;
+  };
+
+  private applyOutputSecurityGuards = (rawOutput: string): string => {
+    const isDlpEnabled = this.config.security?.outputDLP ?? this.config.security?.maskPII ?? false;
+    const shouldCheckSecrets = this.config.security?.blockSecretLeaks ?? true;
+
+    if (!isDlpEnabled && !shouldCheckSecrets) {
+      return rawOutput;
+    }
+
+    const guardResult = applyOutputGuards(rawOutput, {
+      maskPII: isDlpEnabled,
+      blockSecretLeaks: shouldCheckSecrets,
+      secretLeakAction: this.config.security?.secretLeakAction ?? "REDACT",
+    });
+
+    return guardResult.text;
   };
 
   private checkPreflightBudget = async (
@@ -256,6 +274,7 @@ export class AvantGateControlLayer {
   };
 
   private assembleResult = (output: ProviderDispatchOutput): ExecutionResult => {
+    const sanitizedText = this.applyOutputSecurityGuards(output.responseText);
     const costUSD = this.calculateCost(
       output.modelUsed,
       output.usage.promptTokens,
@@ -264,7 +283,7 @@ export class AvantGateControlLayer {
     );
 
     return {
-      text: output.responseText,
+      text: sanitizedText,
       tokens: {
         prompt: output.usage.promptTokens,
         completion: output.usage.completionTokens,
@@ -437,13 +456,15 @@ export class AvantGateControlLayer {
         accumulatedPromptTokens += attemptPromptTokens;
         accumulatedCompletionTokens += attemptCompletionTokens;
 
+        const sanitizedResponse = this.applyOutputSecurityGuards(responseText);
+
         const isFinancial =
           options.financialNormalizer ??
           Boolean(
             this.config.features?.finance?.enableFrenchAccounting || this.config.features?.finance
           );
 
-        const parsedData = validateWithZod(responseText, options.schema, {
+        const parsedData = validateWithZod(sanitizedResponse, options.schema, {
           financialNormalizer: isFinancial,
           jurisdiction: this.config.features?.finance?.jurisdiction,
         });
@@ -455,7 +476,7 @@ export class AvantGateControlLayer {
 
         const result: StructuredExecutionResult<T> = {
           data: parsedData,
-          rawText: responseText,
+          rawText: sanitizedResponse,
           tokens: {
             prompt: accumulatedPromptTokens,
             completion: accumulatedCompletionTokens,

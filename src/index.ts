@@ -8,3 +8,4 @@ export * from "./control-layer";
 export * from "./prompts";
 export * from "./providers/http-client";
 export * from "./workflow";
+export * from "./secret-guard";
