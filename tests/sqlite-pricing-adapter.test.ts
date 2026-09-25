@@ -19,6 +19,21 @@ const assert = (condition: boolean, msg: string): void => {
 const runTests = async (): Promise<void> => {
   console.log("💰 Testing SqlitePricingAdapter & FinOps Persistence...\n");
 
+  let hasNativeSqlite = true;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("node:sqlite");
+  } catch {
+    hasNativeSqlite = false;
+  }
+
+  if (!hasNativeSqlite) {
+    console.log(
+      `⚠️ SKIPPING native SqlitePricingAdapter tests: Node runtime ${process.version} does not support built-in 'node:sqlite' (requires Node.js 22.5+).\n`
+    );
+    return;
+  }
+
   // =========================================================================
   // Test 1: In-memory SqlitePricingAdapter initialization & basic lookup
   // =========================================================================
