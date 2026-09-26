@@ -221,6 +221,31 @@ async function runTests() {
 
   assert(accountingRes.data.result === -150000, "features.finance automatically normalized (150 000) to -150000");
 
+  // Test 9: generateStructuredOutput with mockSimulation and custom model override (FIX-023)
+  const simControl = createAvantGate({
+    primary: {
+      provider: "deepseek",
+      model: "deepseek-chat",
+    },
+    mockSimulation: true,
+  });
+
+  const simSchema = z.object({
+    simulation: z.boolean(),
+    model: z.string(),
+  });
+
+  const simRes = await simControl.generateStructuredOutput({
+    messages: [{ role: "user", content: "Demande de simulation structurée" }],
+    schema: simSchema,
+    model: "deepseek-reasoner",
+  });
+
+  assert(simRes.modelUsed === "deepseek-reasoner", "generateStructuredOutput honors options.model in simulation");
+  assert(simRes.data.simulation === true, "generateStructuredOutput simulation returns valid structured data");
+  assert(simRes.data.model === "deepseek-reasoner", "generateStructuredOutput simulation contains overridden model name");
+  assert(simRes.tokens.total > 0, "mockSimulation tracks simulated token usage");
+
   console.log("\n🎉 All avantgate tests passed successfully!");
 }
 

@@ -200,20 +200,25 @@ export class AvantGateControlLayer {
     ].filter((provider): provider is ProviderConfig => Boolean(provider?.client));
   };
 
-  private executeSimulation = (query: string, systemPrompt?: string): ExecutionResult => {
+  private executeSimulation = (
+    query: string,
+    systemPrompt?: string,
+    modelOverride?: string
+  ): ExecutionResult => {
+    const targetModel = modelOverride ?? this.config.primary.model;
     const promptTokens = Math.ceil(((systemPrompt?.length ?? 0) + query.length) / 4);
     const completionTokens = 50;
-    const cost = this.calculateCost(this.config.primary.model, promptTokens, completionTokens);
+    const cost = this.calculateCost(targetModel, promptTokens, completionTokens);
 
     return {
-      text: `[AvantGate In-Process Engine] Response simulation for model: ${this.config.primary.model}`,
+      text: `[AvantGate In-Process Engine] Response simulation for model: ${targetModel}`,
       tokens: {
         prompt: promptTokens,
         completion: completionTokens,
         total: promptTokens + completionTokens,
       },
       costUSD: cost,
-      modelUsed: this.config.primary.model,
+      modelUsed: targetModel,
       failoverOccurred: false,
       attempts: 1,
     };
@@ -311,9 +316,6 @@ export class AvantGateControlLayer {
     });
   };
 
-  /**
-   * Exécute une requête avec garde d'entrée, masquage PII, garde pré-vol et calcul des coûts.
-   */
   execute = async (options: {
     userQuery: string;
     systemPrompt?: string;
@@ -348,9 +350,7 @@ export class AvantGateControlLayer {
     return result;
   };
 
-  /**
-   * Exécute une requête et valide/répare le résultat selon un schéma Zod.
-   */
+
   executeStructured = async <T>(options: {
     userQuery: string;
     systemPrompt?: string;
@@ -384,127 +384,203 @@ export class AvantGateControlLayer {
     };
   };
 
-  /**
-   * Méthode unifiée de premier niveau pour l'extraction structurée sans code boilerplate.
-   * Gère le failover multi-fournisseurs, les retries, la validation Zod et la normalisation financière.
-   */
-  generateStructuredOutput = async <T>(
-    options: GenerateStructuredOutputOptions<T>
-  ): Promise<StructuredExecutionResult<T>> => {
-    const maxRetries = options.maxRetries ?? this.config.retryOptions?.maxRetries ?? 2;
-    const modelToUse = options.model ?? this.config.primary.model;
-
-    const processedMessages = options.messages.map((msg) => {
+  private sanitizeIncomingMessages = (messages: ChatMessage[]): ChatMessage[] => {
+    return messages.map((msg) => {
       if (msg.role === "user") {
         return { ...msg, content: this.applySecurityGuards(msg.content) };
       }
       return msg;
     });
+  };
 
-    const promptLength = processedMessages.reduce((sum, msg) => sum + msg.content.length, 0);
+  private verifyPromptBudget = async (messages: ChatMessage[], model: string): Promise<void> => {
+    const promptLength = messages.reduce((sum, msg) => sum + msg.content.length, 0);
     const estimatedPromptTokens = Math.ceil(promptLength / 4);
-    await this.checkPreflightBudget(estimatedPromptTokens, modelToUse);
+    await this.checkPreflightBudget(estimatedPromptTokens, model);
+  };
+
+  private dispatchOverrideAttempt = async (
+    override: LLMProviderPort,
+    messages: ChatMessage[],
+    model: string,
+    temperature?: number
+  ) => {
+    const res = await override.complete({ model, messages, temperature: temperature ?? 0.1 });
+    const usage = this.resolveTokens(res.usage, JSON.stringify(messages), res.text);
+    return {
+      responseText: res.text,
+      promptTokens: usage.promptTokens,
+      completionTokens: usage.completionTokens,
+      modelUsed: model,
+      failoverOccurred: false,
+    };
+  };
+
+  private dispatchSimulatedAttempt = (
+    messages: ChatMessage[],
+    modelOverride?: string
+  ) => {
+    if (!this.config.mockSimulation) {
+      throw new ConfigurationError(
+        "[AvantGate Configuration Error] No active LLM provider configured. Provide a client implementing LLMProviderPort or configure credentials (apiKey / baseUrl)."
+      );
+    }
+    const sim = this.executeSimulation(JSON.stringify(messages), undefined, modelOverride);
+    const responseText = sim.text.includes("{")
+      ? sim.text
+      : JSON.stringify({ simulation: true, model: sim.modelUsed });
+
+    return {
+      responseText,
+      promptTokens: sim.tokens.prompt,
+      completionTokens: sim.tokens.completion,
+      modelUsed: sim.modelUsed,
+      failoverOccurred: false,
+    };
+  };
+
+  private dispatchPipelineAttempt = async (
+    messages: ChatMessage[],
+    modelOverride?: string,
+    temperature?: number
+  ) => {
+    const output = await this.executeProviderPipeline(
+      messages,
+      JSON.stringify(messages),
+      temperature ?? 0.1,
+      modelOverride
+    );
+    return {
+      responseText: output.responseText,
+      promptTokens: output.usage.promptTokens,
+      completionTokens: output.usage.completionTokens,
+      modelUsed: output.modelUsed,
+      failoverOccurred: output.failoverOccurred,
+    };
+  };
+
+  private dispatchProviderAttempt = async <T>(
+    options: GenerateStructuredOutputOptions<T>,
+    messages: ChatMessage[],
+    targetModel: string
+  ) => {
+    if (options.providerOverride) {
+      return this.dispatchOverrideAttempt(options.providerOverride, messages, targetModel, options.temperature);
+    }
+    if (this.getProviderChain().length === 0) {
+      return this.dispatchSimulatedAttempt(messages, options.model);
+    }
+    return this.dispatchPipelineAttempt(messages, options.model ?? targetModel, options.temperature);
+  };
+
+  private parseAndValidateStructuredResult = <T>(
+    rawText: string,
+    options: GenerateStructuredOutputOptions<T>
+  ): { parsedData: T; sanitizedResponse: string } => {
+    const sanitizedResponse = this.applyOutputSecurityGuards(rawText);
+    const isFinancial =
+      options.financialNormalizer ??
+      Boolean(
+        this.config.features?.finance?.enableFrenchAccounting || this.config.features?.finance
+      );
+
+    const parsedData = validateWithZod(sanitizedResponse, options.schema, {
+      financialNormalizer: isFinancial,
+      jurisdiction: this.config.features?.finance?.jurisdiction,
+    });
+
+    return { parsedData, sanitizedResponse };
+  };
+
+  private buildStructuredResult = <T>(params: {
+    data: T;
+    rawText: string;
+    promptTokens: number;
+    completionTokens: number;
+    modelUsed: string;
+    failoverOccurred: boolean;
+  }): StructuredExecutionResult<T> => {
+    const totalTokens = params.promptTokens + params.completionTokens;
+    const costUSD = this.calculateCost(params.modelUsed, params.promptTokens, params.completionTokens);
+    this.checkPostExecutionBudget(totalTokens, costUSD);
+
+    return {
+      data: params.data,
+      rawText: params.rawText,
+      tokens: {
+        prompt: params.promptTokens,
+        completion: params.completionTokens,
+        total: totalTokens,
+      },
+      costUSD,
+      modelUsed: params.modelUsed,
+      failoverOccurred: params.failoverOccurred,
+    };
+  };
+
+  private notifyAuditSinkSafe = async <T>(
+    sanitizedText: string,
+    result: StructuredExecutionResult<T>,
+    attempts: number
+  ): Promise<void> => {
+    await this.notifyAuditSink({
+      text: sanitizedText,
+      tokens: result.tokens,
+      costUSD: result.costUSD,
+      modelUsed: result.modelUsed,
+      failoverOccurred: result.failoverOccurred,
+      attempts,
+    });
+  };
+
+  private waitRetryBackoff = async (attempt: number, maxRetries: number): Promise<void> => {
+    if (attempt >= maxRetries) {
+      return;
+    }
+    const initialDelay = this.config.retryOptions?.initialDelayMs ?? 200;
+    const factor = this.config.retryOptions?.backoffFactor ?? 1.5;
+    const delay = initialDelay * Math.pow(factor, attempt);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  };
+
+  generateStructuredOutput = async <T>(
+    options: GenerateStructuredOutputOptions<T>
+  ): Promise<StructuredExecutionResult<T>> => {
+    const maxRetries = options.maxRetries ?? this.config.retryOptions?.maxRetries ?? 2;
+    const targetModel = options.model ?? this.config.primary.model;
+    const processedMessages = this.sanitizeIncomingMessages(options.messages);
+
+    await this.verifyPromptBudget(processedMessages, targetModel);
 
     let lastError: unknown;
     let accumulatedPromptTokens = 0;
     let accumulatedCompletionTokens = 0;
-    let failoverOccurred = false;
-    let modelUsed = modelToUse;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        let responseText = "";
-        let attemptPromptTokens = 0;
-        let attemptCompletionTokens = 0;
+        const output = await this.dispatchProviderAttempt(options, processedMessages, targetModel);
+        accumulatedPromptTokens += output.promptTokens;
+        accumulatedCompletionTokens += output.completionTokens;
 
-        if (options.providerOverride) {
-          const res = await options.providerOverride.complete({
-            model: modelToUse,
-            messages: processedMessages,
-            temperature: options.temperature ?? 0.1,
-          });
-          responseText = res.text;
-          const usage = this.resolveTokens(res.usage, JSON.stringify(processedMessages), responseText);
-          attemptPromptTokens = usage.promptTokens;
-          attemptCompletionTokens = usage.completionTokens;
-          modelUsed = modelToUse;
-        } else if (this.getProviderChain().length === 0) {
-          if (this.config.mockSimulation) {
-            const sim = this.executeSimulation(JSON.stringify(processedMessages));
-            responseText = sim.text;
-            attemptPromptTokens = sim.tokens.prompt;
-            attemptCompletionTokens = sim.tokens.completion;
-          } else {
-            throw new ConfigurationError(
-              "[AvantGate Configuration Error] No active LLM provider configured. Provide a client implementing LLMProviderPort or configure credentials (apiKey / baseUrl)."
-            );
-          }
-        } else {
-          const output = await this.executeProviderPipeline(
-            processedMessages,
-            JSON.stringify(processedMessages),
-            options.temperature ?? 0.1,
-            options.model
-          );
-          responseText = output.responseText;
-          attemptPromptTokens = output.usage.promptTokens;
-          attemptCompletionTokens = output.usage.completionTokens;
-          modelUsed = output.modelUsed;
-          failoverOccurred = output.failoverOccurred;
-        }
+        const { parsedData, sanitizedResponse } = this.parseAndValidateStructuredResult(
+          output.responseText,
+          options
+        );
 
-        accumulatedPromptTokens += attemptPromptTokens;
-        accumulatedCompletionTokens += attemptCompletionTokens;
-
-        const sanitizedResponse = this.applyOutputSecurityGuards(responseText);
-
-        const isFinancial =
-          options.financialNormalizer ??
-          Boolean(
-            this.config.features?.finance?.enableFrenchAccounting || this.config.features?.finance
-          );
-
-        const parsedData = validateWithZod(sanitizedResponse, options.schema, {
-          financialNormalizer: isFinancial,
-          jurisdiction: this.config.features?.finance?.jurisdiction,
-        });
-
-        const totalTokens = accumulatedPromptTokens + accumulatedCompletionTokens;
-        const costUSD = this.calculateCost(modelUsed, accumulatedPromptTokens, accumulatedCompletionTokens);
-
-        this.checkPostExecutionBudget(totalTokens, costUSD);
-
-        const result: StructuredExecutionResult<T> = {
+        const result = this.buildStructuredResult({
           data: parsedData,
           rawText: sanitizedResponse,
-          tokens: {
-            prompt: accumulatedPromptTokens,
-            completion: accumulatedCompletionTokens,
-            total: totalTokens,
-          },
-          costUSD,
-          modelUsed,
-          failoverOccurred,
-        };
-
-        await this.notifyAuditSink({
-          text: responseText,
-          tokens: result.tokens,
-          costUSD: result.costUSD,
-          modelUsed: result.modelUsed,
-          failoverOccurred: result.failoverOccurred,
-          attempts: attempt + 1,
+          promptTokens: accumulatedPromptTokens,
+          completionTokens: accumulatedCompletionTokens,
+          modelUsed: output.modelUsed,
+          failoverOccurred: output.failoverOccurred,
         });
 
+        await this.notifyAuditSinkSafe(sanitizedResponse, result, attempt + 1);
         return result;
       } catch (err) {
         lastError = err;
-        if (attempt < maxRetries) {
-          const delay =
-            (this.config.retryOptions?.initialDelayMs ?? 200) *
-            Math.pow(this.config.retryOptions?.backoffFactor ?? 1.5, attempt);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
+        await this.waitRetryBackoff(attempt, maxRetries);
       }
     }
 

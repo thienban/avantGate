@@ -58,3 +58,8 @@ gatewall/.next/
 gatewall/data/
 *.db
 *.db-journal
+
+/tickets
+/docs
+gatewall/docs
+gatewall/scripts
