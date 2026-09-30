@@ -54,6 +54,9 @@ export interface ToolExecutionTelemetryEvent extends BaseTelemetryEvent {
   success: boolean;
   parentToolId?: string;
   depth?: number;
+  attempts?: number;
+  maxRetries?: number;
+  retriedErrors?: string[];
   llmSummary?: unknown;
   piiFilteredCount?: number;
   tokenCount?: number;
@@ -94,6 +97,11 @@ export interface TelemetryIngestPayload {
   timestamp: string;
   events: TelemetryEvent[];
   usage?: TelemetryUsageSummary;
+  metadata?: {
+    retryOf?: string;
+    replayedBy?: string;
+    [key: string]: unknown;
+  };
 }
 
 /**

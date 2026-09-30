@@ -1,4 +1,5 @@
 import { DataLineageProof } from "@/lib/types/telemetry";
+import { pseudoHash } from "@/lib/utils";
 
 export interface LeakEvaluationInput {
   toolId: string;
@@ -62,13 +63,4 @@ export const evaluateDataLeakage = (input: LeakEvaluationInput): DataLineageProo
     complianceStatus: leakDetected ? "CRITICAL_BREACH" : "COMPLIANT_ZERO_LEAK",
     certifiedTimestamp: new Date().toISOString(),
   };
-};
-
-const pseudoHash = (str: string): string => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash).toString(16).padStart(12, "0");
 };

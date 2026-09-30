@@ -444,3 +444,12 @@ An autonomous agent attempts to provision a "Pro" software license:
 2. **Pure `outputDto` Projections**: The `outputDto` function must remain a pure, synchronous transformation of computed step results without initiating external network calls.
 3. **Persistent Storage in Production**: Always configure a persistent `StepStorageAdapter` (`PrismaStorageAdapter`, `SQLiteStorageAdapter`, or `KeyValueStorageAdapter`) for workflows that employ `waitForApproval`.
 4. **Granular Step Decomposition**: Favor 3-5 focused, single-purpose steps over one monolithic step. Granular steps enable clean, isolated compensation and detailed audit trails.
+
+---
+
+## 🔗 Related Architectural Guides
+
+* [GateWall & Temporal: Complementary Architecture](../observability/temporal-and-gatewall.md)
+* [GateWall vs. Pydantic AI Gateway & Logfire](../observability/gatewall-vs-pydantic-gateway.md)
+* [GateWall Cockpit Governance Console](../observability/gatewall-cockpit.md)
+* [Telemetry Exporters & Browser React SDK](../observability/telemetry-and-browser-sdk.md)

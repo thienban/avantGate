@@ -16,6 +16,10 @@ import {
   loadPersistedApprovals,
   persistApproval,
 } from "./sqlite-driver";
+import { getMockSessions, getMockApprovals } from "./mock-data";
+import { sanitizeErrorMessage, extractBearerToken, formatDate } from "../utils";
+
+export { sanitizeErrorMessage };
 
 class TelemetryStore {
   private sessions: Map<string, SessionRun> = new Map();
@@ -32,10 +36,14 @@ class TelemetryStore {
   }
 
   private initStore(): void {
+    const isDemoMode =
+      process.env.GATEWALL_DEMO_MODE === "true" ||
+      process.env.NEXT_PUBLIC_GATEWALL_DEMO_MODE === "true";
+
     const existingSessions = loadPersistedSessions();
     const existingApprovals = loadPersistedApprovals();
 
-    if (existingSessions.length > 0) {
+    if (existingSessions.length > 0 && !isDemoMode) {
       for (const s of existingSessions) {
         this.sessions.set(s.runId, s);
       }
@@ -51,11 +59,14 @@ class TelemetryStore {
         persistApproval(a);
       }
     }
+
+    // Active TTL check on startup
+    this.cleanExpiredApprovals();
   }
 
   public validateApiKey(authHeader: string | null): boolean {
-    if (!authHeader) return false;
-    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    const token = extractBearerToken(authHeader);
+    if (!token) return false;
     if (this.apiKeys.has(token)) return true;
     return (
       token.startsWith("gw_live_") ||
@@ -66,16 +77,37 @@ class TelemetryStore {
   }
 
   public getSessions(): SessionRun[] {
+    this.cleanExpiredApprovals();
+    const persisted = loadPersistedSessions();
+    for (const s of persisted) {
+      this.sessions.set(s.runId, s);
+    }
     return Array.from(this.sessions.values()).sort(
       (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
     );
   }
 
   public getSessionById(runId: string): SessionRun | undefined {
+    this.cleanExpiredApprovals();
+    if (!this.sessions.has(runId)) {
+      const persisted = loadPersistedSessions();
+      for (const s of persisted) {
+        this.sessions.set(s.runId, s);
+      }
+    }
     return this.sessions.get(runId);
   }
 
+  public getSession(runId: string): SessionRun | undefined {
+    return this.getSessionById(runId);
+  }
+
   public getApprovals(): ApprovalItem[] {
+    this.cleanExpiredApprovals();
+    const persisted = loadPersistedApprovals();
+    for (const a of persisted) {
+      this.approvals.set(a.id, a);
+    }
     return Array.from(this.approvals.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
@@ -105,11 +137,48 @@ class TelemetryStore {
     return item;
   }
 
+  public cleanExpiredApprovals(maxAgeMs = 24 * 3600 * 1000): ApprovalItem[] {
+    const now = Date.now();
+    const expired: ApprovalItem[] = [];
+
+    for (const [id, item] of this.approvals.entries()) {
+      if (item.status === "PENDING") {
+        const createdAtMs = new Date(item.createdAt).getTime();
+        if (now - createdAtMs > maxAgeMs) {
+          item.status = "REJECTED";
+          item.decidedAt = new Date().toISOString();
+          item.decidedBy = "System (TTL)";
+          item.reason = "Auto-expired: SLA timeout exceeded (24h)";
+          this.approvals.set(id, item);
+          persistApproval(item);
+
+          const session = this.sessions.get(item.runId);
+          if (session && session.status === "WAITING_APPROVAL") {
+            session.status = "FAILED";
+            this.sessions.set(item.runId, session);
+            persistSession(session);
+          }
+
+          expired.push(item);
+        }
+      }
+    }
+
+    return expired;
+  }
+
   public ingest(payload: TelemetryIngestPayload): SessionRun {
     const existing = this.sessions.get(payload.runId);
     const toolEvents = payload.events.filter(
       (e) => e.type === "TOOL_EXECUTION"
     ) as ToolExecutionEvent[];
+
+    // Sanitize any sensitive tokens / keys out of retriedErrors
+    for (const t of toolEvents) {
+      if (t.retriedErrors && Array.isArray(t.retriedErrors)) {
+        t.retriedErrors = t.retriedErrors.map(sanitizeErrorMessage);
+      }
+    }
 
     const loopResult = detectInfiniteLoop(toolEvents);
     const approvalReq = payload.events.find(
@@ -127,6 +196,11 @@ class TelemetryStore {
     );
 
     let status: SessionRun["status"] = existing?.status || "RUNNING";
+    const hasFailedStep = payload.events.some((e) => e.type === "STEP_FAILED");
+    const hasFailedTool = toolEvents.some(
+      (t) => t.success === false && (t.attempts === undefined || t.attempts >= (t.maxRetries || 1))
+    );
+
     if (approvalReq) {
       status = "WAITING_APPROVAL";
       const approvalId = `appr_${payload.runId}_${Date.now()}`;
@@ -144,8 +218,55 @@ class TelemetryStore {
         this.approvals.set(approvalId, newApproval);
         persistApproval(newApproval);
       }
+    } else if (hasFailedStep || hasFailedTool) {
+      status = "FAILED";
     } else if (payload.events.some((e) => e.type === "STEP_COMPLETED")) {
       status = "COMPLETED";
+    }
+
+    const hasRetriesOccurred =
+      Boolean(existing?.hasRetriesOccurred) ||
+      toolEvents.some((t) => (t.attempts || 1) > 1);
+
+    const currentTenantId = payload.tenantId || (payload.metadata?.tenantId as string | undefined);
+    const currentTaskId = payload.taskId || (payload.metadata?.taskId as string | undefined);
+
+    const retryOf = payload.metadata?.retryOf;
+    if (retryOf) {
+      const parentSession = this.sessions.get(retryOf);
+      if (parentSession) {
+        // Validation conjointe de sécurité (Anti-BOLA & Anti-Confusion Sémantique)
+        const parentTenantId = parentSession.tenantId || (parentSession.metadata?.tenantId as string | undefined);
+        const parentTaskId = parentSession.taskId || (parentSession.metadata?.taskId as string | undefined);
+
+        const isTenantMatch = !parentTenantId || (currentTenantId !== undefined && parentTenantId === currentTenantId);
+        const isTaskMatch = !parentTaskId || (currentTaskId !== undefined && parentTaskId === currentTaskId);
+        const isAgentMatch = parentSession.agentName === payload.agentName;
+
+        const isAuthorizedReplay = isTenantMatch && isTaskMatch && isAgentMatch;
+
+        if (!isAuthorizedReplay) {
+          console.warn(
+            `[SECURITY ALERT] Unauthorized replay link attempt blocked: runId=${payload.runId} targeting parent=${retryOf} ` +
+            `(Tenant match: ${isTenantMatch}, Task match: ${isTaskMatch}, Agent match: ${isAgentMatch})`
+          );
+        } else {
+          parentSession.metadata = {
+            ...(parentSession.metadata || {}),
+            replayedBy: payload.runId,
+          };
+          parentSession.replayedBy = payload.runId;
+          if (status === "COMPLETED") {
+            parentSession.status = "RECOVERED";
+          } else if (status === "FAILED") {
+            parentSession.status = "FAILED";
+          } else {
+            parentSession.status = "RETRYING";
+          }
+          this.sessions.set(retryOf, parentSession);
+          persistSession(parentSession);
+        }
+      }
     }
 
     const modelName = payload.usage?.model || existing?.model || "gpt-4o-mini";
@@ -158,14 +279,18 @@ class TelemetryStore {
         : calculateFallbackTokenCost(modelName, promptTokens, completionTokens);
 
     const piiFiltered = toolEvents.reduce((acc, t) => acc + (t.piiFilteredCount || 0), 0);
+    const lastToolWithRetries = [...toolEvents].reverse().find((t) => t.retriedErrors && t.retriedErrors.length > 0);
+    const finalRetriedErrors = lastToolWithRetries?.retriedErrors || existing?.retriedErrors;
 
     const sessionRun: SessionRun = {
       id: payload.runId,
       runId: payload.runId,
       agentName: payload.agentName,
+      tenantId: currentTenantId || existing?.tenantId,
+      taskId: currentTaskId || existing?.taskId,
       status,
       startTime: existing?.startTime || payload.timestamp || new Date().toISOString(),
-      endTime: status === "COMPLETED" ? new Date().toISOString() : undefined,
+      endTime: status === "COMPLETED" || status === "RECOVERED" ? new Date().toISOString() : undefined,
       durationMs:
         (existing?.durationMs || 0) +
         (toolEvents.reduce((acc, t) => acc + (t.durationMs || 0), 0) || 500),
@@ -182,6 +307,9 @@ class TelemetryStore {
         (existing?.clientSecurityAlertsCount || 0) + clientSecurityAlerts.length,
       clientDataRenderedCount:
         (existing?.clientDataRenderedCount || 0) + clientRenders.length,
+      hasRetriesOccurred,
+      retriedErrors: finalRetriedErrors,
+      metadata: payload.metadata || existing?.metadata,
       userFeedback: feedbackEvent
         ? {
             rating: feedbackEvent.rating,
@@ -215,7 +343,7 @@ class TelemetryStore {
 
     const dailyMap: Record<string, { costUsd: number; tokens: number; runs: number }> = {};
     for (const run of runs) {
-      const date = run.startTime.slice(0, 10);
+      const date = formatDate(run.startTime);
       if (!dailyMap[date]) {
         dailyMap[date] = { costUsd: 0, tokens: 0, runs: 0 };
       }
@@ -295,274 +423,22 @@ class TelemetryStore {
     });
   }
 
-  private seedInitialData(): void {
-    const run1: SessionRun = {
-      id: "run-prospect-101",
-      runId: "run-prospect-101",
-      agentName: "prospect-qualifier",
-      status: "WAITING_APPROVAL",
-      startTime: "2026-09-13T13:40:00.000Z",
-      durationMs: 1420,
-      totalCostUsd: 0.000459,
-      totalTokens: 1750,
-      promptTokens: 1350,
-      completionTokens: 400,
-      model: "gpt-4o-mini",
-      eventsCount: 4,
-      toolsUsedCount: 1,
-      piiFilteredCount: 3,
-      loopAlertTriggered: false,
-      clientSecurityAlertsCount: 0,
-      clientDataRenderedCount: 1,
-      userFeedback: {
-        rating: "POSITIVE",
-        tag: "HELPFUL",
-        comment: "Directeurs pertinents identifiés sans exposer d'emails confidentiels.",
-      },
-      events: [
-        {
-          type: "STEP_START",
-          stepName: "fetch-prospect-data",
-          timestamp: "2026-09-13T13:40:01.000Z",
-        },
-        {
-          type: "TOOL_EXECUTION",
-          toolId: "crm_lookup_01",
-          toolName: "searchCRM",
-          aliasUsed: "lookup_crm",
-          depth: 1,
-          durationMs: 340,
-          success: true,
-          llmSummary: { found: true, leadScore: 85, company: "Acme Corp" },
-          rawPayload: { email: "ceo@acme.com", phone: "+33612345678", revenue: "$10M" },
-          piiFilteredCount: 3,
-          tokens: { promptTokens: 120, completionTokens: 60, totalTokens: 180 },
-          costUsd: 0.00008,
-          cached: false,
-          timestamp: "2026-09-13T13:40:01.340Z",
-        },
-        {
-          type: "CLIENT_DATA_RENDERED",
-          toolId: "crm_lookup_01",
-          channel: "HTTP",
-          renderedItemCount: 1,
-          timestamp: "2026-09-13T13:40:01.380Z",
-        },
-        {
-          type: "STEP_COMPLETED",
-          stepName: "fetch-prospect-data",
-          durationMs: 420,
-          piiDetectedCount: 3,
-          resultSummary: { success: true },
-          timestamp: "2026-09-13T13:40:01.420Z",
-        },
-        {
-          type: "STEP_APPROVAL_REQUEST",
-          stepName: "send-outreach-email",
-          actionType: "SEND_OUTREACH_EMAIL",
-          payloadSummary: {
-            recipientDomain: "acme.com",
-            template: "executive_pitch",
-            leadScore: 85,
-            channel: "Email",
-          },
-          timestamp: "2026-09-13T13:40:02.000Z",
-        },
-        {
-          type: "USER_FEEDBACK",
-          rating: "POSITIVE",
-          feedbackTag: "HELPFUL",
-          userComment: "Directeurs pertinents identifiés sans exposer d'emails confidentiels.",
-          timestamp: "2026-09-13T13:40:03.500Z",
-        },
-      ],
-    };
+  public seedInitialData(): void {
+    const mockSessions = getMockSessions();
+    const mockApprovals = getMockApprovals();
 
-    const run2: SessionRun = {
-      id: "run-enrich-202",
-      runId: "run-enrich-202",
-      agentName: "lead-enricher",
-      status: "COMPLETED",
-      startTime: "2026-09-13T12:15:00.000Z",
-      endTime: "2026-09-13T12:15:03.200Z",
-      durationMs: 3200,
-      totalCostUsd: 0.00185,
-      totalTokens: 4600,
-      promptTokens: 3800,
-      completionTokens: 800,
-      model: "claude-3-5-sonnet-20241022",
-      eventsCount: 4,
-      toolsUsedCount: 2,
-      piiFilteredCount: 5,
-      loopAlertTriggered: false,
-      clientSecurityAlertsCount: 0,
-      clientDataRenderedCount: 2,
-      events: [
-        {
-          type: "STEP_START",
-          stepName: "enrich-linkedin-profile",
-          timestamp: "2026-09-13T12:15:00.500Z",
-        },
-        {
-          type: "TOOL_EXECUTION",
-          toolId: "linkedin_01",
-          toolName: "scrapeCompanyData",
-          aliasUsed: "fetch_company",
-          depth: 1,
-          durationMs: 890,
-          success: true,
-          llmSummary: { employeesCount: 250, industry: "Fintech", hq: "Paris" },
-          rawPayload: { executiveName: "Alice Martin", directPhone: "+33140506070" },
-          piiFilteredCount: 2,
-          tokens: { promptTokens: 350, completionTokens: 120, totalTokens: 470 },
-          costUsd: 0.00045,
-          cached: false,
-          timestamp: "2026-09-13T12:15:01.390Z",
-        },
-        {
-          type: "CLIENT_DATA_RENDERED",
-          toolId: "linkedin_01",
-          channel: "HTTP",
-          renderedItemCount: 2,
-          timestamp: "2026-09-13T12:15:01.410Z",
-        },
-        {
-          type: "STEP_COMPLETED",
-          stepName: "enrich-linkedin-profile",
-          durationMs: 950,
-          piiDetectedCount: 2,
-          resultSummary: { verified: true },
-          timestamp: "2026-09-13T12:15:01.450Z",
-        },
-      ],
-    };
-
-    const run3: SessionRun = {
-      id: "run-loop-guard-303",
-      runId: "run-loop-guard-303",
-      agentName: "support-resolver",
-      status: "FAILED",
-      startTime: "2026-09-13T11:00:00.000Z",
-      endTime: "2026-09-13T11:00:04.100Z",
-      durationMs: 4100,
-      totalCostUsd: 0.00092,
-      totalTokens: 2900,
-      promptTokens: 2500,
-      completionTokens: 400,
-      model: "gpt-4o-mini",
-      eventsCount: 4,
-      toolsUsedCount: 3,
-      piiFilteredCount: 0,
-      loopAlertTriggered: true,
-      clientSecurityAlertsCount: 0,
-      clientDataRenderedCount: 0,
-      events: [
-        {
-          type: "STEP_START",
-          stepName: "ticket-lookup-step",
-          timestamp: "2026-09-13T11:00:00.100Z",
-        },
-        {
-          type: "TOOL_EXECUTION",
-          toolId: "zendesk_01",
-          toolName: "fetchTicketInfo",
-          aliasUsed: "zendesk_api",
-          depth: 1,
-          durationMs: 250,
-          success: true,
-          llmSummary: { ticketId: 994, status: "open" },
-          piiFilteredCount: 0,
-          costUsd: 0.00005,
-          cached: false,
-          timestamp: "2026-09-13T11:00:01.000Z",
-        },
-        {
-          type: "TOOL_EXECUTION",
-          toolId: "zendesk_02",
-          toolName: "fetchTicketInfo",
-          aliasUsed: "zendesk_api",
-          depth: 1,
-          durationMs: 240,
-          success: true,
-          llmSummary: { ticketId: 994, status: "open" },
-          piiFilteredCount: 0,
-          costUsd: 0.00005,
-          cached: false,
-          timestamp: "2026-09-13T11:00:01.500Z",
-        },
-        {
-          type: "TOOL_EXECUTION",
-          toolId: "zendesk_03",
-          toolName: "fetchTicketInfo",
-          aliasUsed: "zendesk_api",
-          depth: 1,
-          durationMs: 260,
-          success: true,
-          llmSummary: { ticketId: 994, status: "open" },
-          piiFilteredCount: 0,
-          costUsd: 0.00005,
-          cached: false,
-          timestamp: "2026-09-13T11:00:02.000Z",
-        },
-      ],
-    };
-
-    const run4: SessionRun = {
-      id: "run-threat-404",
-      runId: "run-threat-404",
-      agentName: "prospect-qualifier",
-      status: "FAILED",
-      startTime: "2026-09-13T14:10:00.000Z",
-      endTime: "2026-09-13T14:10:00.200Z",
-      durationMs: 200,
-      totalCostUsd: 0,
-      totalTokens: 0,
-      promptTokens: 0,
-      completionTokens: 0,
-      model: "gpt-4o-mini",
-      eventsCount: 1,
-      toolsUsedCount: 0,
-      piiFilteredCount: 1,
-      loopAlertTriggered: false,
-      clientSecurityAlertsCount: 1,
-      clientDataRenderedCount: 0,
-      events: [
-        {
-          type: "CLIENT_SECURITY_ALERT",
-          alertType: "SUSPECTED_SECRET_INPUT",
-          inputLength: 48,
-          matchedPatternSnippet: "sk-ant-api03-ab9...",
-          timestamp: "2026-09-13T14:10:00.120Z",
-        },
-      ],
-    };
-
-    this.sessions.set(run1.runId, run1);
-    this.sessions.set(run2.runId, run2);
-    this.sessions.set(run3.runId, run3);
-    this.sessions.set(run4.runId, run4);
-
-    this.approvals.set("appr_01", {
-      id: "appr_01",
-      runId: "run-prospect-101",
-      agentName: "prospect-qualifier",
-      stepName: "send-outreach-email",
-      actionType: "SEND_OUTREACH_EMAIL",
-      payloadSummary: {
-        recipientDomain: "acme.com",
-        template: "executive_pitch",
-        leadScore: 85,
-        estimatedDealSize: "$50,000",
-      },
-      status: "PENDING",
-      createdAt: "2026-09-13T13:40:02.000Z",
-    });
+    for (const s of mockSessions) {
+      this.sessions.set(s.runId, s);
+    }
+    for (const a of mockApprovals) {
+      this.approvals.set(a.id, a);
+    }
   }
 }
 
 // Global singleton instance for the app
 const globalForStore = globalThis as unknown as { telemetryStore: TelemetryStore | undefined };
-export const telemetryStore = globalForStore.telemetryStore ?? new TelemetryStore();
+export const telemetryStore = new TelemetryStore();
 if (process.env.NODE_ENV !== "production") {
   globalForStore.telemetryStore = telemetryStore;
 }

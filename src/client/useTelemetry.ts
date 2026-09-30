@@ -1,10 +1,10 @@
-import { useRef, useEffect, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  createAvantGateClient,
-  type AvantGateClient,
-  type TrackSecurityAlertDetails,
+  createClient,
+  type Client,
   type TrackDataRenderedOptions,
   type TrackFeedbackOptions,
+  type TrackSecurityAlertDetails,
 } from "./client";
 import type {
   BrowserTelemetryExporterConfig,
@@ -12,20 +12,16 @@ import type {
 } from "./types";
 
 export type {
-  TrackSecurityAlertDetails,
   TrackDataRenderedOptions,
   TrackFeedbackOptions,
+  TrackSecurityAlertDetails,
 };
 
-/**
- * Lightweight React Hook for front-end telemetry and client-side security event tracking.
- * Encapsulates lifecycle management, useRef persistence, useCallback and useMemo optimization.
- */
-export const useAvantGateTelemetry = (config: BrowserTelemetryExporterConfig) => {
-  const clientRef = useRef<AvantGateClient | null>(null);
+export const useTelemetry = (config: BrowserTelemetryExporterConfig) => {
+  const clientRef = useRef<Client | null>(null);
 
   if (!clientRef.current) {
-    clientRef.current = createAvantGateClient(config);
+    clientRef.current = createClient(config);
   }
 
   useEffect(() => {

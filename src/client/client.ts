@@ -22,9 +22,9 @@ export interface TrackFeedbackOptions {
 }
 
 /**
- * Public interface for the universal (framework-agnostic) avantGate telemetry client.
+ * Public interface for the universal (framework-agnostic) telemetry client.
  */
-export interface AvantGateClient {
+export interface Client {
   trackSecurityAlert: (
     alertType: ClientSecurityAlertEvent["alertType"],
     details: TrackSecurityAlertDetails
@@ -41,12 +41,12 @@ export interface AvantGateClient {
 }
 
 /**
- * Creates a universal, framework-agnostic avantGate client instance.
+ * Creates a universal, framework-agnostic client instance.
  * Works seamlessly in Vite (Vanilla JS, Vue, Svelte, SolidJS), Next.js, or browser scripts.
  */
-export const createAvantGateClient = (
+export const createClient = (
   config: BrowserTelemetryExporterConfig
-): AvantGateClient => {
+): Client => {
   const exporter = new BrowserTelemetryExporter(config);
 
   const trackSecurityAlert = (

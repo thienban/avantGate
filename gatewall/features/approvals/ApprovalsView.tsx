@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useApprovalsQuery, useDecideApprovalMutation } from "@/hooks/useTelemetry";
+import { formatTime } from "@/lib/utils";
 import {
   UserCheck,
   Check,
@@ -94,7 +95,7 @@ export const ApprovalsView: React.FC = () => {
 
                   <div className="flex items-center gap-2 text-xs font-mono text-slate-500 dark:text-zinc-400">
                     <Clock className="h-3.5 w-3.5" />
-                    <span>Reçu à {item.createdAt.slice(11, 19)}</span>
+                    <span>Reçu à {formatTime(item.createdAt)}</span>
                   </div>
                 </div>
 
@@ -170,7 +171,7 @@ export const ApprovalsView: React.FC = () => {
                 <div className="flex items-center gap-4 text-slate-500 dark:text-zinc-400 text-[11px]">
                   <span>Par : <strong className="text-slate-700 dark:text-zinc-200">{item.decidedBy || "Admin"}</strong></span>
                   <span>Motif : &quot;{item.reason || "N/A"}&quot;</span>
-                  <span className="font-mono">{item.decidedAt?.slice(11, 19)}</span>
+                  <span className="font-mono">{formatTime(item.decidedAt)}</span>
                 </div>
               </div>
             ))}

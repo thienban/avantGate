@@ -15,6 +15,7 @@ import { DualPassInspector } from "./DualPassInspector";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { AlertOctagon, Terminal } from "lucide-react";
+import { formatTime } from "@/lib/utils";
 
 export const FirewallCockpitView: React.FC = () => {
   useRealtimeStream(); // Active listening to real-time events via SSE
@@ -154,7 +155,7 @@ export const FirewallCockpitView: React.FC = () => {
                         )}
                       </div>
                       <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-mono">
-                        {event.timestamp.slice(11, 19)}
+                        {formatTime(event.timestamp)}
                       </span>
                     </div>
                   ))}

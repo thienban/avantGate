@@ -37,6 +37,7 @@ coverage/
 !.vscode/launch.json
 !.vscode/extensions.json
 .idea/
+.agents/
 *.suo
 *.ntvs*
 *.njsproj
@@ -56,10 +57,11 @@ Thumbs.db
 .next/
 gatewall/.next/
 gatewall/data/
+data/
 *.db
 *.db-journal
 
 /tickets
-/docs
+/docs/INTERNE
 gatewall/docs
 gatewall/scripts

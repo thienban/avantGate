@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { BrowserTelemetryExporter } from "../../src/client/browser-exporter";
-import { createAvantGateClient } from "../../src/client/client";
-import { useAvantGateTelemetry } from "../../src/client/useAvantGateTelemetry";
+import { createClient } from "../../src/client/client";
+import { useTelemetry } from "../../src/client/useTelemetry";
 import type { ClientTelemetryIngestPayload } from "../../src/client/types";
 
 console.log("🌐 Testing avantgate/client BrowserTelemetryExporter & useAvantGateTelemetry Hook...");
@@ -193,7 +193,7 @@ async function testUseAvantGateTelemetryHook(): Promise<void> {
   };
 
   try {
-    const hook = useAvantGateTelemetry({
+    const hook = useTelemetry({
       publicKey: "gw_pub_react_test",
       runId: "run-react-42",
       agentName: "sales-assistant",
@@ -292,7 +292,7 @@ async function testUniversalAvantGateClient(): Promise<void> {
   };
 
   // Works in Vite (Vanilla JS, Vue, Svelte, etc.) - ZERO React dependency
-  const client = createAvantGateClient({
+  const client = createClient({
     publicKey: "gw_pub_vite_test",
     runId: "run-vite-007",
     agentName: "prospect-qualifier",

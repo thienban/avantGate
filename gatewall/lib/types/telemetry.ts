@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const TimestampSchema = z.iso.datetime();
+export type Timestamp = z.infer<typeof TimestampSchema>;
+
 export const TokenUsageSchema = z.object({
   promptTokens: z.number().nonnegative().default(0),
   completionTokens: z.number().nonnegative().default(0),
@@ -10,7 +13,7 @@ export type TokenUsage = z.infer<typeof TokenUsageSchema>;
 export const StepStartEventSchema = z.object({
   type: z.literal("STEP_START"),
   stepName: z.string().min(1),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type StepStartEvent = z.infer<typeof StepStartEventSchema>;
 
@@ -23,13 +26,16 @@ export const ToolExecutionEventSchema = z.object({
   depth: z.number().nonnegative().default(1),
   durationMs: z.number().nonnegative().default(0),
   success: z.boolean().default(true),
+  attempts: z.number().int().positive().optional(),
+  maxRetries: z.number().int().nonnegative().optional(),
+  retriedErrors: z.array(z.string()).optional(),
   llmSummary: z.record(z.string(), z.unknown()).nullable().optional(),
   rawPayload: z.record(z.string(), z.unknown()).nullable().optional(),
   piiFilteredCount: z.number().nonnegative().default(0),
   tokens: TokenUsageSchema.optional(),
   costUsd: z.number().nonnegative().default(0),
   cached: z.boolean().default(false),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type ToolExecutionEvent = z.infer<typeof ToolExecutionEventSchema>;
 
@@ -39,16 +45,25 @@ export const StepCompletedEventSchema = z.object({
   durationMs: z.number().nonnegative().default(0),
   piiDetectedCount: z.number().nonnegative().default(0),
   resultSummary: z.record(z.string(), z.unknown()).nullable().optional(),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type StepCompletedEvent = z.infer<typeof StepCompletedEventSchema>;
+
+export const StepFailedEventSchema = z.object({
+  type: z.literal("STEP_FAILED"),
+  stepName: z.string().min(1),
+  durationMs: z.number().nonnegative().optional(),
+  error: z.string().default("Unknown error"),
+  timestamp: TimestampSchema,
+});
+export type StepFailedEvent = z.infer<typeof StepFailedEventSchema>;
 
 export const StepApprovalRequestEventSchema = z.object({
   type: z.literal("STEP_APPROVAL_REQUEST"),
   stepName: z.string().min(1),
   actionType: z.string().min(1),
   payloadSummary: z.record(z.string(), z.unknown()).default({}),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type StepApprovalRequestEvent = z.infer<typeof StepApprovalRequestEventSchema>;
 
@@ -64,7 +79,7 @@ export const LlmGenerationEventSchema = z.object({
   durationMs: z.number().nonnegative().default(0),
   ttftMs: z.number().nonnegative().optional(),
   costUsd: z.number().nonnegative().default(0),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type LlmGenerationEvent = z.infer<typeof LlmGenerationEventSchema>;
 
@@ -73,7 +88,7 @@ export const ClientDataRenderedEventSchema = z.object({
   toolId: z.string().min(1),
   channel: z.enum(["SOCKET", "STREAM", "HTTP"]).default("HTTP"),
   renderedItemCount: z.number().nonnegative().optional(),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type ClientDataRenderedEvent = z.infer<typeof ClientDataRenderedEventSchema>;
 
@@ -83,7 +98,7 @@ export const ClientSecurityAlertEventSchema = z.object({
   inputLength: z.number().nonnegative(),
   matchedPatternSnippet: z.string().optional(),
   snippet: z.string().optional(),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type ClientSecurityAlertEvent = z.infer<typeof ClientSecurityAlertEventSchema>;
 
@@ -92,7 +107,7 @@ export const UserFeedbackEventSchema = z.object({
   rating: z.enum(["POSITIVE", "NEGATIVE"]),
   feedbackTag: z.enum(["HELPFUL", "INACCURATE", "UNSAFE", "OFF_TOPIC"]).optional(),
   userComment: z.string().max(500).optional(),
-  timestamp: z.string().datetime().or(z.string()),
+  timestamp: TimestampSchema,
 });
 export type UserFeedbackEvent = z.infer<typeof UserFeedbackEventSchema>;
 
@@ -100,6 +115,7 @@ export const RunEventSchema = z.discriminatedUnion("type", [
   StepStartEventSchema,
   ToolExecutionEventSchema,
   StepCompletedEventSchema,
+  StepFailedEventSchema,
   StepApprovalRequestEventSchema,
   LlmGenerationEventSchema,
   ClientDataRenderedEventSchema,
@@ -117,23 +133,47 @@ export const OverallUsageSchema = z.object({
 });
 export type OverallUsage = z.infer<typeof OverallUsageSchema>;
 
+export const SessionMetadataSchema = z
+  .object({
+    retryOf: z.string().optional(),
+    replayedBy: z.string().optional(),
+    tenantId: z.string().optional(),
+    taskId: z.string().optional(),
+  })
+  .catchall(z.unknown())
+  .optional();
+export type SessionMetadata = z.infer<typeof SessionMetadataSchema>;
+
 export const TelemetryIngestPayloadSchema = z.object({
   runId: z
     .string()
     .min(1)
     .default(() => `run_client_${Date.now()}`),
   agentName: z.string().min(1),
-  timestamp: z.string().datetime().or(z.string()),
+  tenantId: z.string().optional(),
+  taskId: z.string().optional(),
+  timestamp: TimestampSchema,
   events: z.array(RunEventSchema),
   usage: OverallUsageSchema.optional(),
+  metadata: SessionMetadataSchema,
 });
 export type TelemetryIngestPayload = z.infer<typeof TelemetryIngestPayloadSchema>;
+
+export type SessionStatus =
+  | "RUNNING"
+  | "COMPLETED"
+  | "FAILED"
+  | "WAITING_APPROVAL"
+  | "RETRYING"
+  | "RECOVERED";
 
 export interface SessionRun {
   id: string;
   runId: string;
   agentName: string;
-  status: "RUNNING" | "COMPLETED" | "FAILED" | "WAITING_APPROVAL";
+  tenantId?: string;
+  taskId?: string;
+  status: SessionStatus;
   startTime: string;
   endTime?: string;
   durationMs: number;
@@ -148,6 +188,21 @@ export interface SessionRun {
   loopAlertTriggered: boolean;
   clientSecurityAlertsCount: number;
   clientDataRenderedCount: number;
+  hasRetriesOccurred?: boolean;
+  attempts?: number;
+  maxRetries?: number;
+  retriedErrors?: string[];
+  retryOf?: string;
+  replayedBy?: string;
+  metadata?: {
+    retryOf?: string;
+    replayedBy?: string;
+    tenantId?: string;
+    taskId?: string;
+    attempts?: number;
+    maxRetries?: number;
+    [key: string]: unknown;
+  };
   userFeedback?: {
     rating: "POSITIVE" | "NEGATIVE";
     tag?: string;

@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import { extractBearerToken } from "./utils";
 
 export interface ApiKeyRecord {
   id: string;
@@ -85,9 +86,9 @@ class AuthService {
   }
 
   private extractTokenFromHeaders(headers: Headers): string | null {
-    const authHeader = headers.get("authorization");
-    if (authHeader) {
-      return authHeader.replace(/^Bearer\s+/i, "").trim();
+    const bearer = extractBearerToken(headers.get("authorization"));
+    if (bearer) {
+      return bearer;
     }
     const xApiKey = headers.get("x-api-key");
     if (xApiKey) {

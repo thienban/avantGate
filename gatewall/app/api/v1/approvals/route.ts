@@ -11,6 +11,10 @@ const DecisionSchema = z.object({
 });
 
 export const GET = async (): Promise<NextResponse> => {
+  const expired = telemetryStore.cleanExpiredApprovals();
+  for (const item of expired) {
+    realtimeEmitter.broadcast("approval_decided", item);
+  }
   const approvals = telemetryStore.getApprovals();
   return NextResponse.json({ approvals });
 };

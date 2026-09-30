@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useSessionsQuery } from "@/hooks/useTelemetry";
+import { formatTime } from "@/lib/utils";
 import {
   ShieldCheck,
   Lock,
@@ -177,7 +178,7 @@ export const SecurityView: React.FC = () => {
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-emerald-700 dark:text-emerald-400 font-medium">{item.piiFilteredCount} PII Masquées</span>
-                <span className="text-slate-400 dark:text-zinc-500 font-mono">{item.timestamp.slice(11, 19)}</span>
+                <span className="text-slate-400 dark:text-zinc-500 font-mono">{formatTime(item.timestamp)}</span>
               </div>
             </div>
           ))}

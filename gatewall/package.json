@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "test": "tsx --test tests/client-telemetry.test.ts tests/ingest-simulation.test.ts tests/retries-and-ttl.test.ts",
+    "seed:mock": "tsx scripts/seed-mock.ts",
     "lint": "eslint"
   },
   "dependencies": {
@@ -17,7 +19,7 @@
     "react-dom": "19.2.8",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
-    "zod": "^4.6.4",
+    "zod": "^4.6.5",
     "zustand": "^5.0.15"
   },
   "devDependencies": {

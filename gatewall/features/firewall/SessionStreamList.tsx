@@ -3,7 +3,7 @@
 import React from "react";
 import { Badge } from "@/components/ui/Badge";
 import { SessionRun } from "@/lib/types/telemetry";
-import { formatDuration } from "@/lib/utils";
+import { formatDuration, getStatusBadgeConfig, cn } from "@/lib/utils";
 import { Clock, ThumbsUp, ThumbsDown, Layers } from "lucide-react";
 
 interface SessionStreamListProps {
@@ -39,17 +39,19 @@ export const SessionStreamList: React.FC<SessionStreamListProps> = ({
         </Badge>
       );
     }
-    if (session.status === "COMPLETED") {
-      return <Badge variant="success" className="text-[10px]">Conforme</Badge>;
-    }
-    return <Badge variant="info" className="text-[10px]">En Cours</Badge>;
+    const config = getStatusBadgeConfig(session.status);
+    return (
+      <Badge variant={config.variant} className={cn("text-[10px]", config.className)}>
+        {config.label}
+      </Badge>
+    );
   };
 
   return (
     <div className="flex flex-col space-y-3">
       <div className="flex items-center justify-between px-1">
         <h2 className="text-xs font-bold text-slate-700 dark:text-zinc-300 uppercase tracking-wider">
-          Runs Agentiques & Démo ProspectAI ({sessions.length})
+          Runs Agentiques ({sessions.length})
         </h2>
         <span className="text-[10px] text-slate-500 dark:text-zinc-500 font-mono">Stream Live</span>
       </div>

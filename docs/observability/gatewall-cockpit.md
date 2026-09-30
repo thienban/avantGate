@@ -20,31 +20,55 @@ Access the console at **`http://localhost:3000`**.
 | View | Path | Description |
 |---|---|---|
 | **Dashboard** | `/` | Real-time spend, token counters, alerts, active tools, and recent activity. |
-| **Dual-Pass Inspector** | `/firewall` | Compare masked PII summaries (`llmSummary`) vs local escrow (`rawPayload`). |
-| **HITL Approval Queue** | `/firewall` | Review and click **Approve** or **Reject** on suspended tools. |
+| **Sessions & Action Replay** | `/sessions` | Step-by-step causal timeline tracing all agent actions, tool executions, latency, and costs. |
+| **HITL Approval Queue** | `/approvals` | Review and click **Approve** or **Reject** on suspended tools and sensitive actions. |
+| **Dual-Pass Inspector** | `/firewall` / `/security` | Compare masked PII summaries (`llmSummary`) vs local escrow (`rawPayload`). |
 | **FinOps Administration** | `/pricing` | Add, edit, and seed LLM model price tables in SQLite (`gatewall.db`). |
 | **Tools Registry** | `/tools` | Inspect all registered agent tools, domains, roles, and impact ratings. |
 
 ---
 
-## 🔗 Connecting SDK to GateWall Cockpit
+## 🕵️ Agent Action Tracing & Causal Replay
 
-Configure `HttpTelemetryExporter` in your backend:
+AvantGate automatically streams granular action traces from your agent execution engine directly to GateWall Cockpit.
+
+### Traced Events
+
+| Event Type | Triggered On | Captured Data |
+|---|---|---|
+| `STEP_START` | Agent step initialization | Step ID, run ID, start timestamp, context metadata |
+| `TOOL_EXECUTION` | Isolated tool / action invocation | Tool ID, latency (`durationMs`), cost USD, tokens, PII filtration count, sanitized LLM summary |
+| `STEP_APPROVAL_REQUEST` | Sensitive action paused for approval | Action type, sanitized arguments |
+| `STEP_COMPLETED` / `STEP_FAILED` | Step completion or error | Execution output, error stack if failed |
+
+### Connecting the Agent Runner
+
+Use [`PlatformStorageAdapter`](../../src/agent/adapters/platform-adapter.ts) combined with [`HttpTelemetryExporter`](../../src/agent/telemetry/http-exporter.ts) to enable non-blocking, zero-overhead tracing:
 
 ```typescript
-import { HttpTelemetryExporter } from "avantgate/agent";
+import { HttpTelemetryExporter, PlatformStorageAdapter } from "avantgate/agent";
 
+// 1. Configure the non-blocking HTTP exporter
 const exporter = new HttpTelemetryExporter({
   endpoint: "http://localhost:3000/api/v1/ingest/events",
-  apiKey: "optional-gatewall-secret",
+  agentName: "ProspectingAgent",
   maxBatchSize: 10,
-  flushIntervalMs: 5000,
+  flushIntervalMs: 3000,
 });
+
+// 2. Attach the hybrid storage adapter to your StepRunner
+const storage = new PlatformStorageAdapter({
+  exporter,
+});
+
+// Every step and tool execution is now live-streamed to Cockpit's /sessions timeline!
 ```
 
 ---
 
 ## 🔗 Related Observability Guides
 
+* [GateWall & Temporal: Complementary Architecture](temporal-and-gatewall.md)
+* [GateWall vs. Pydantic AI Gateway & Logfire](gatewall-vs-pydantic-gateway.md)
 * [Telemetry Exporters & Browser React SDK](telemetry-and-browser-sdk.md)
 * [Dynamic Pricing Adapters](../finops/pricing-adapters.md)

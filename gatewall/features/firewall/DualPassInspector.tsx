@@ -3,6 +3,7 @@
 import React from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
+import { formatTime } from "@/lib/utils";
 import {
   SessionRun,
   ToolExecutionEvent,
@@ -66,7 +67,7 @@ export const DualPassInspector: React.FC<DualPassInspectorProps> = ({ session })
                       Menace Interceptée dans le Navigateur : {alert.alertType}
                     </span>
                     <span className="text-[10px] text-rose-600 dark:text-rose-400 font-mono">
-                      {alert.timestamp.slice(11, 19)}
+                      {formatTime(alert.timestamp)}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-600 dark:text-zinc-300">

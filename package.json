@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "1.8.1",
+  "version": "1.9.0",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF) & privacy control plane for TypeScript: real-time prompt guardrails, zero-egress PII redaction, agent tool isolation, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
   "author": "Gatewall Team",
   "license": "MIT",
@@ -90,18 +90,19 @@
     "test:pii": "tsx tests/pii-extended.test.ts",
     "test:agent": "tsx tests/agent/step-runner.test.ts && tsx tests/agent/isolated-tool.test.ts && tsx tests/agent/dto-pattern.test.ts && tsx tests/agent/tool-patterns.test.ts && tsx tests/agent/storage-adapters.test.ts && tsx tests/agent/tool-aliasing.test.ts && tsx tests/agent/tool-chaining.test.ts && tsx tests/agent/tool-storage.test.ts && tsx tests/agent/telemetry-exporter.test.ts && tsx tests/agent/platform-adapter.test.ts && tsx tests/agent/tool-governance.test.ts && tsx tests/agent/tool-impact.test.ts",
     "test:workflow": "tsx tests/workflow/workflow-saga.test.ts && tsx tests/workflow/workflow-abort.test.ts",
-    "test:client": "tsx tests/client/browser-exporter.test.ts",
+    "test:client": "tsx tests/client/browser-exporter.test.ts && tsx tests/client/use-avantgate-task.test.ts && tsx tests/client/task-runner.test.ts",
     "test:demo": "tsx tests/agent/prospect-ai-demo-scenario.test.ts",
     "gatewall": "npm --prefix gatewall run dev",
     "gatewall:dev": "npm --prefix gatewall run dev",
     "gatewall:build": "npm --prefix gatewall run build",
+    "gatewall:seed": "npm --prefix gatewall run seed:mock",
     "gatewall:start": "npm --prefix gatewall run start",
     "gatewall:docker": "docker compose up -d",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
   "dependencies": {
-    "zod": "^3.23.0 || ^4.0.0"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.2",

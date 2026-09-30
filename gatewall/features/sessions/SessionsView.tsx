@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { useSessionsQuery, useSessionDetailQuery } from "@/hooks/useTelemetry";
-import { formatCurrency, formatDuration, formatTokens } from "@/lib/utils";
+import { formatCurrency, formatDuration, formatTokens, formatTime, getStatusBadgeConfig } from "@/lib/utils";
 import {
   Clock,
   Cpu,
@@ -28,16 +28,12 @@ export const SessionsView: React.FC = () => {
   const currentSession: SessionRun | undefined = detailData?.session || sessions.find((s) => s.runId === selectedId) || sessions[0];
 
   const getStatusBadge = (status: SessionRun["status"]) => {
-    switch (status) {
-      case "COMPLETED":
-        return <Badge variant="success">Terminé</Badge>;
-      case "WAITING_APPROVAL":
-        return <Badge variant="warning">Approbation Requise</Badge>;
-      case "FAILED":
-        return <Badge variant="destructive">Échec / Disjoncté</Badge>;
-      default:
-        return <Badge variant="info">En Cours</Badge>;
-    }
+    const config = getStatusBadgeConfig(status);
+    return (
+      <Badge variant={config.variant} className={config.className}>
+        {config.label}
+      </Badge>
+    );
   };
 
   return (
@@ -112,6 +108,30 @@ export const SessionsView: React.FC = () => {
                     Agent : <strong className="text-slate-800 dark:text-zinc-200">{currentSession.agentName}</strong> • Modèle :{" "}
                     <strong className="text-slate-800 dark:text-zinc-200">{currentSession.model}</strong>
                   </p>
+
+                  {currentSession.metadata?.retryOf && (
+                    <div className="mt-2 text-xs font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-md border border-indigo-200 dark:border-indigo-500/20 inline-flex items-center gap-1.5">
+                      <span>🔄 Rejeu de la session précédente :</span>
+                      <button
+                        onClick={() => setSelectedId(String(currentSession.metadata?.retryOf))}
+                        className="font-bold underline hover:text-indigo-800 dark:hover:text-indigo-300"
+                      >
+                        {String(currentSession.metadata.retryOf)}
+                      </button>
+                    </div>
+                  )}
+
+                  {currentSession.metadata?.replayedBy && (
+                    <div className="mt-2 text-xs font-mono text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-500/20 inline-flex items-center gap-1.5">
+                      <span>✅ Incident résolu par la session :</span>
+                      <button
+                        onClick={() => setSelectedId(String(currentSession.metadata?.replayedBy))}
+                        className="font-bold underline hover:text-emerald-800 dark:hover:text-emerald-300"
+                      >
+                        {String(currentSession.metadata.replayedBy)}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-4 text-xs font-mono">
@@ -185,7 +205,7 @@ export const SessionsView: React.FC = () => {
                             </span>
                           </span>
                           <span className="text-[10px] text-slate-400 dark:text-zinc-400 font-mono">
-                            {event.timestamp.slice(11, 19)}
+                            {formatTime(event.timestamp)}
                           </span>
                         </div>
 
@@ -205,6 +225,17 @@ export const SessionsView: React.FC = () => {
                                   {event.piiFilteredCount} PII masquées
                                 </span>
                               )}
+                              {event.attempts !== undefined && event.attempts > 1 && (
+                                <span className={`px-2 py-0.5 rounded font-medium ${
+                                  event.success
+                                    ? "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-500/30"
+                                    : "bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-500/30"
+                                }`}>
+                                  {event.success
+                                    ? `⚠️ ${event.attempts - 1} retry(s) récupéré(s)`
+                                    : `❌ Échec après ${event.attempts} essais`}
+                                </span>
+                              )}
                             </div>
 
                             {/* Safe LLM Summary preview */}
@@ -216,6 +247,16 @@ export const SessionsView: React.FC = () => {
                                 {JSON.stringify(event.llmSummary, null, 2)}
                               </div>
                             )}
+                          </div>
+                        )}
+
+                        {/* Step Failed Details */}
+                        {event.type === "STEP_FAILED" && (
+                          <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-500/30 text-xs text-rose-900 dark:text-rose-200 space-y-1">
+                            <p className="font-semibold flex items-center gap-1.5">
+                              <AlertOctagon className="h-3.5 w-3.5 text-rose-600 dark:text-rose-400" />
+                              Étape Interrompue : {event.error}
+                            </p>
                           </div>
                         )}
 

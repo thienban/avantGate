@@ -1,7 +1,9 @@
 import fs from "fs";
 import path from "path";
+import { createRequire } from "module";
 import { SessionRun, ApprovalItem } from "../types/telemetry";
 import { ModelPricingItem } from "../types/pricing";
+import { safeJsonParse } from "../utils";
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "gatewall.db");
@@ -25,17 +27,68 @@ const ensureDataDir = (): void => {
   }
 };
 
+interface SqliteModule {
+  DatabaseSync: new (path: string) => SqliteInstance;
+}
+
+const resolveSqliteModule = (): SqliteModule | null => {
+  try {
+    // 1. Standard Node.js ESM createRequire (resolves without bundler AST conflicts)
+    if (typeof createRequire === "function") {
+      const nodeRequire = createRequire(process.cwd() + "/");
+      try {
+        const mod = nodeRequire("node:sqlite");
+        if (mod && mod.DatabaseSync) {
+          return mod as SqliteModule;
+        }
+      } catch {
+        // Ignore
+      }
+
+      try {
+        const bunMod = nodeRequire("bun:sqlite");
+        if (bunMod && bunMod.Database) {
+          return { DatabaseSync: bunMod.Database } as SqliteModule;
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    // 2. Node.js 22 getBuiltinModule
+    if (
+      typeof process !== "undefined" &&
+      typeof (process as unknown as { getBuiltinModule?: (id: string) => unknown }).getBuiltinModule === "function"
+    ) {
+      const builtin = (process as unknown as { getBuiltinModule: (id: string) => unknown }).getBuiltinModule("node:sqlite");
+      if (builtin && typeof (builtin as { DatabaseSync?: unknown }).DatabaseSync === "function") {
+        return builtin as SqliteModule;
+      }
+    }
+  } catch {
+    // Ignore and fallback
+  }
+  return null;
+};
+
+let warnedFallback = false;
+
 const initSqlite = (): SqliteInstance | null => {
   if (dbInstance) return dbInstance;
+  if (useJsonFallback) return null;
   ensureDataDir();
 
   try {
-    // Attempt using native node:sqlite DatabaseSync (Node 22+)
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { DatabaseSync } = require("node:sqlite");
-    const db = new DatabaseSync(DB_FILE);
+    const sqliteMod = resolveSqliteModule();
+    if (!sqliteMod) {
+      throw new Error("node:sqlite module not available in this runtime");
+    }
+
+    const db = new sqliteMod.DatabaseSync(DB_FILE);
 
     db.exec(`
+      PRAGMA journal_mode = WAL;
+      PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS sessions (
         run_id TEXT PRIMARY KEY,
         agent_name TEXT NOT NULL,
@@ -89,7 +142,12 @@ const initSqlite = (): SqliteInstance | null => {
     dbInstance = db;
     return db;
   } catch (error) {
-    console.warn("[gateWall Storage] Native SQLite unavailable, falling back to persistent JSON storage:", error);
+    if (!warnedFallback) {
+      warnedFallback = true;
+      if (process.env.DEBUG === "true") {
+        console.warn("[gateWall Storage] Native SQLite unavailable, using persistent JSON storage (gatewall-store.json).");
+      }
+    }
     useJsonFallback = true;
     return null;
   }
@@ -107,17 +165,13 @@ const readJsonFallback = (): JsonStoragePayload => {
   if (!fs.existsSync(JSON_BACKUP_FILE)) {
     return { sessions: [], approvals: [], pricing: [] };
   }
-  try {
-    const raw = fs.readFileSync(JSON_BACKUP_FILE, "utf-8");
-    const parsed = JSON.parse(raw);
-    return {
-      sessions: parsed.sessions || [],
-      approvals: parsed.approvals || [],
-      pricing: parsed.pricing || [],
-    };
-  } catch {
-    return { sessions: [], approvals: [], pricing: [] };
-  }
+  const raw = fs.readFileSync(JSON_BACKUP_FILE, "utf-8");
+  const parsed = safeJsonParse<Partial<JsonStoragePayload>>(raw, {});
+  return {
+    sessions: parsed.sessions || [],
+    approvals: parsed.approvals || [],
+    pricing: parsed.pricing || [],
+  };
 };
 
 const writeJsonFallback = (data: JsonStoragePayload): void => {
@@ -140,7 +194,7 @@ export const loadPersistedSessions = (): SessionRun[] => {
   try {
     const stmt = db.prepare("SELECT payload_json FROM sessions ORDER BY start_time DESC");
     const rows = stmt.all() as { payload_json: string }[];
-    return rows.map((r) => JSON.parse(r.payload_json));
+    return rows.map((r) => safeJsonParse<SessionRun | null>(r.payload_json, null)).filter((s): s is SessionRun => s !== null);
   } catch (err) {
     console.error("[gateWall Storage] Failed to load sessions from SQLite:", err);
     return readJsonFallback().sessions;
@@ -148,18 +202,18 @@ export const loadPersistedSessions = (): SessionRun[] => {
 };
 
 export const persistSession = (session: SessionRun): void => {
-  const db = initSqlite();
-  if (!db || useJsonFallback) {
-    const data = readJsonFallback();
-    const index = data.sessions.findIndex((s) => s.runId === session.runId);
-    if (index >= 0) {
-      data.sessions[index] = session;
-    } else {
-      data.sessions.unshift(session);
-    }
-    writeJsonFallback(data);
-    return;
+  // Always update JSON backup file to ensure full dev/prod parity
+  const data = readJsonFallback();
+  const index = data.sessions.findIndex((s) => s.runId === session.runId);
+  if (index >= 0) {
+    data.sessions[index] = session;
+  } else {
+    data.sessions.unshift(session);
   }
+  writeJsonFallback(data);
+
+  const db = initSqlite();
+  if (!db || useJsonFallback) return;
 
   try {
     const stmt = db.prepare(`
@@ -242,7 +296,7 @@ export const loadPersistedApprovals = (): ApprovalItem[] => {
       agentName: r.agent_name,
       stepName: r.step_name,
       actionType: r.action_type,
-      payloadSummary: JSON.parse(r.payload_summary_json || "{}"),
+      payloadSummary: safeJsonParse<Record<string, unknown>>(r.payload_summary_json, {}),
       status: r.status,
       createdAt: r.created_at,
       decidedAt: r.decided_at,
@@ -256,18 +310,18 @@ export const loadPersistedApprovals = (): ApprovalItem[] => {
 };
 
 export const persistApproval = (approval: ApprovalItem): void => {
-  const db = initSqlite();
-  if (!db || useJsonFallback) {
-    const data = readJsonFallback();
-    const index = data.approvals.findIndex((a) => a.id === approval.id);
-    if (index >= 0) {
-      data.approvals[index] = approval;
-    } else {
-      data.approvals.unshift(approval);
-    }
-    writeJsonFallback(data);
-    return;
+  // Always update JSON backup file to ensure full dev/prod parity
+  const data = readJsonFallback();
+  const index = data.approvals.findIndex((a) => a.id === approval.id);
+  if (index >= 0) {
+    data.approvals[index] = approval;
+  } else {
+    data.approvals.unshift(approval);
   }
+  writeJsonFallback(data);
+
+  const db = initSqlite();
+  if (!db || useJsonFallback) return;
 
   try {
     const stmt = db.prepare(`
