@@ -7,7 +7,8 @@ import { auth } from "@/lib/auth";
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Authorization, Content-Type, X-API-Key",
+  "Access-Control-Allow-Headers":
+    "Authorization, Content-Type, X-API-Key, X-Batch-Id, Idempotency-Key",
 };
 
 export const OPTIONS = async (): Promise<NextResponse> => {
@@ -72,6 +73,13 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
     }
 
     const payload = parseResult.data;
+    const headerBatchId =
+      request.headers.get("x-batch-id") ||
+      request.headers.get("idempotency-key");
+    if (!payload.batchId && headerBatchId) {
+      payload.batchId = headerBatchId;
+    }
+
     const keyPrefix = verifiedKey.key?.prefix || "";
     const isPublicKey = keyPrefix.includes("pub_");
 
@@ -90,15 +98,20 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
       }
     }
 
+    const isCached = Boolean(
+      payload.batchId && telemetryStore.isBatchProcessed(payload.batchId)
+    );
     const sessionRun = telemetryStore.ingest(payload);
 
-    // Broadcast SSE update to listening frontend clients
-    realtimeEmitter.broadcast("session_update", sessionRun);
-    if (sessionRun.status === "WAITING_APPROVAL") {
-      realtimeEmitter.broadcast("approval_required", {
-        runId: sessionRun.runId,
-        agentName: sessionRun.agentName,
-      });
+    // Broadcast SSE update only for freshly processed batches to avoid duplicate cascades
+    if (!isCached) {
+      realtimeEmitter.broadcast("session_update", sessionRun);
+      if (sessionRun.status === "WAITING_APPROVAL") {
+        realtimeEmitter.broadcast("approval_required", {
+          runId: sessionRun.runId,
+          agentName: sessionRun.agentName,
+        });
+      }
     }
 
     return NextResponse.json(
@@ -110,6 +123,7 @@ export const POST = async (request: NextRequest): Promise<NextResponse> => {
         loopAlertTriggered: sessionRun.loopAlertTriggered,
         eventsCount: sessionRun.eventsCount,
         clientSecurityAlertsCount: sessionRun.clientSecurityAlertsCount,
+        isCached,
       },
       { headers: CORS_HEADERS }
     );

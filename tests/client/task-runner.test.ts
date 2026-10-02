@@ -1,5 +1,7 @@
 import assert from "node:assert";
 import { createTaskRunner } from "../../src/client/task-runner";
+import { getIdempotencyKey, getIdempotencyHeaders } from "../../src/client/task-utils";
+import type { TaskExecutionContext } from "../../src/client/task-types";
 
 console.log("🏃 Testing createTaskRunner (Universal Framework-Agnostic Port)...");
 
@@ -130,11 +132,58 @@ async function testRunnerFinOpsCapAndConcurrency(): Promise<void> {
   console.log("  ✅ FinOps retry cap and reset lifecycle validated.");
 }
 
+async function testIdempotencyHeaderPropagation(): Promise<void> {
+  let attempt = 0;
+  const capturedContexts: TaskExecutionContext[] = [];
+
+  const runner = createTaskRunner({
+    taskName: "order_pizza",
+    maxManualRetries: 2,
+    handler: async (_input, ctx) => {
+      attempt++;
+      capturedContexts.push(ctx);
+      if (attempt === 1) {
+        throw new Error("Temporary network timeout");
+      }
+      return { orderId: "ord_123" };
+    },
+  });
+
+  // Attempt 1 fails
+  await assert.rejects(async () => runner.run({}), /Temporary network timeout/);
+  const firstCtx = capturedContexts[0];
+  assert.ok(firstCtx.runId, "runId must be present in execution context");
+  assert.strictEqual(firstCtx.parentRunId, undefined);
+
+  // Criteria 1.1: Premier Run -> runId
+  assert.strictEqual(getIdempotencyKey(firstCtx), firstCtx.runId);
+  assert.deepStrictEqual(getIdempotencyHeaders(firstCtx), {
+    "Idempotency-Key": firstCtx.runId,
+  });
+
+  // Attempt 2 (Retry) succeeds
+  const result = await runner.retry();
+  assert.deepStrictEqual(result, { orderId: "ord_123" });
+
+  const retryCtx = capturedContexts[1];
+  assert.ok(retryCtx.runId);
+  assert.strictEqual(retryCtx.parentRunId, firstCtx.runId);
+
+  // Criteria 1.2: Retry Causal -> parentRunId
+  assert.strictEqual(getIdempotencyKey(retryCtx), firstCtx.runId);
+  assert.deepStrictEqual(getIdempotencyHeaders(retryCtx), {
+    "Idempotency-Key": firstCtx.runId,
+  });
+
+  console.log("  ✅ Outgoing Idempotency-Key propagation & causal retry link validated.");
+}
+
 async function runAllTests(): Promise<void> {
   await testRunnerInitialState();
   await testRunnerRunAndSubscription();
   await testRunnerFailureRetryAndCausalLink();
   await testRunnerFinOpsCapAndConcurrency();
+  await testIdempotencyHeaderPropagation();
   console.log("🎉 All createTaskRunner tests passed successfully!\n");
 }
 

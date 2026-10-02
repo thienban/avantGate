@@ -88,10 +88,10 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 
 | Pillar | Core Capabilities & Architecture |
 |---|---|
-| 🛡️ **AI-WAF & Privacy** | • **Prompt Guardrails**: Blocks prompt injections, jailbreaks & exfiltration *pre-flight*.<br/>• **Zero-Egress DLP**: In-process redaction of emails, phone numbers, IBANs & EU tax IDs.<br/>• **Self-Repairing Outputs**: Native Zod validation with automatic JSON heuristic repair. |
-| 🛑 **Agent Isolation & Anti-IDOR** | • **Dual-Channel DTOs**: Streams full records to UI while injecting sanitized summaries into LLM.<br/>• **Anti-IDOR Boundary**: Compile-time tenant scoping (`createTenantTool`) & runtime ownership checks.<br/>• **Infinite Loop Shield**: Detects and breaks recursive agent tool execution loops. |
-| 💰 **FinOps & Resilience** | • **Denial-of-Wallet**: Enforces hard token & USD budgets *before* external inference spend.<br/>• **Multi-Model Failover**: Instant client-side routing to fallback models or local Ollama on 429/500.<br/>• **Live Cost Ledger**: Token burn calculation & pricing adapters with zero external DB. |
-| ⚡ **Sagas & Telemetry** | • **Deterministic Sagas (`avantgate/workflow`)**: In-process FSM with automatic reverse compensation ($k-1 \to 0$).<br/>• **Human-in-the-Loop (HITL)**: Non-blocking suspension & approval queues for high-risk tools.<br/>• **Lightweight Telemetry (`avantgate/client`)**: < 1.7 KB client SDK & async audit bridge to GateWall. |
+| 🛡️ **AI-WAF & Privacy** | • **Prompt Guardrails**: Blocks prompt injections, jailbreaks & exfiltration *pre-flight*.<br/>• **Zero-Egress DLP**: In-process redaction of emails, phone numbers, IBANs & EU tax IDs.<br/>• **Bidirectional Secret Guard**: Active DLP masking of API keys & database credentials in LLM outputs and error traces.<br/>• **Self-Repairing Outputs**: Native Zod validation with automatic JSON heuristic repair. |
+| 🛑 **Agent Isolation & Anti-IDOR** | • **Dual-Channel DTOs**: Streams full records to UI while injecting sanitized summaries into LLM.<br/>• **Anti-IDOR Boundary**: Compile-time tenant scoping (`createTenantTool`) & runtime ownership checks.<br/>• **Server Idempotency Guard**: Zero-infra in-process guard (`withServerIdempotency`) with memory or storage adapters.<br/>• **Infinite Loop Shield**: Detects and breaks recursive agent tool execution loops. |
+| 💰 **FinOps & Resilience** | • **Denial-of-Wallet**: Enforces hard token & USD budgets *before* external inference spend.<br/>• **Multi-Model Failover**: Instant client-side routing to fallback models or local Ollama on 429/500.<br/>• **FinOps Batch Deduplication**: Prevents double-counting of tokens & costs during network retries on GateWall.<br/>• **Live Cost Ledger**: Token burn calculation & pricing adapters with zero external DB. |
+| ⚡ **Sagas, Replay & Telemetry** | • **Deterministic Sagas (`avantgate/workflow`)**: In-process FSM with automatic reverse compensation ($k-1 \to 0$).<br/>• **In-Context Replay (`avantgate/client`)**: React hook (`useTask`) with causal parent linkage (`parentRunId`) & `Idempotency-Key`.<br/>• **Human-in-the-Loop (HITL)**: Non-blocking suspension, approval queues & fail-closed 24h SLA timeout (TTL).<br/>• **Lightweight Telemetry**: < 1.7 KB client SDK & async audit bridge to GateWall. |
 
 ---
 
@@ -104,8 +104,9 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 | 💰 **FinOps & Cost** | [Pre-Flight Budget Guards](docs/finops/budget-guards.md) • [Pricing Adapters & SQLite](docs/finops/pricing-adapters.md) |
 | 🤖 **Agents & Tools** | [Isolated Tools & DTOs](docs/agents/isolated-tools.md) • [Agent Runtime Manual](docs/agents/agent-runtime.md) • [Inter-Tool Chaining](docs/agents/inter-tool-chaining.md) |
 | 🔄 **Deterministic Sagas** | [Durable Workflows Engine](docs/workflows/durable-workflows.md) |
-| 📊 **Observability** | [GateWall Cockpit Console](docs/observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) |
+| 📊 **Observability & Cockpit** | [GateWall Cockpit Console](docs/observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) • [GateWall vs. Temporal](docs/observability/temporal-and-gatewall.md) |
 | 💶 **Accounting** | [Financial Normalizer](docs/finance/normalizer.md) |
+| 🚀 **Release Notes** | [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
 
 ---
 
@@ -119,10 +120,11 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 | **Prompt Injection Defense** | ❌ None | ⚠️ Passive detection | ✅ **Active Pre-Flight Guard (Blocks before spend)** |
 | **Agent Tool Data Isolation** | ❌ Entire DB entity in LLM | ❌ No agent tool awareness | ✅ **Dual-Channel DTO (`clientDto` vs `llmDto`)** |
 | **Row-Level Security & Anti-IDOR** | ❌ Manual code | ❌ Not supported | ✅ **Native `dataAccessGuard` & Domain Boundary** |
+| **Bidirectional Idempotency** | ❌ Manual / none | ⚠️ Basic header relay | ✅ **Native causal key derivation + server guard + batch deduplication** |
 | **Infrastructure Overhead** | None | SaaS Subscription | ✅ **$0 / Zero Servers (Pure npm package)** |
 | **Multi-Model Failover** | ❌ App crashes | ⚠️ Proxy-dependent | ✅ **Built-in Fallback Router & Exponential Retry** |
 | **Zod Schema Auto-Repair** | ❌ No | ❌ No | ✅ **Built-in JSON Heuristic Repair** |
-| **Hierarchical Session Replay** | ❌ None | ⚠️ Flat span waterfall | ✅ **Causality Tree + Dual-Channel Isolation** |
+| **Hierarchical Session Replay** | ❌ None | ⚠️ Flat span waterfall | ✅ **Causality Tree + In-Context Replay (`useTask`)** |
 
 ---
 
@@ -142,9 +144,9 @@ yarn add avantgate zod
 |---|---|
 | `avantgate` | Core control plane: token budgets, cost ledger, prompt guards, multi-model failover & Zod repair. |
 | `avantgate/finance` | Financial data normalizer (accounting parentheses, EU/US/UK/CH currencies & magnitudes). |
-| `avantgate/agent` | *(Preview / Experimental)* Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation & storage adapters. |
+| `avantgate/agent` | Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation, server idempotency (`withServerIdempotency`), & storage adapters. |
 | `avantgate/workflow` | Deterministic sequential state machine, automatic reverse Saga rollback, durable HITL checkpoints & agent tool conversion. |
-| `avantgate/client` | Lightweight front-end SDK (< 1.7 KB) & React hook to stream browser security alerts & metrics directly to GateWall. |
+| `avantgate/client` | Front-end SDK (< 1.7 KB) with in-context task replay (`useTask`, `createTaskRunner`), causal idempotency helpers (`getIdempotencyHeaders`), & GateWall telemetry adapter. |
 
 ---
 

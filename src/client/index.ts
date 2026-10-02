@@ -22,6 +22,8 @@ export {
   generateRunId,
   createInitialTaskState,
   validateRetryEligibility,
+  getIdempotencyKey,
+  getIdempotencyHeaders,
 } from "./task-utils";
 
 export type {

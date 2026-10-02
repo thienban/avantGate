@@ -34,11 +34,23 @@ This document tracks completed milestones and the upcoming architectural roadmap
   - In-process bidirectional PII protection extending to LLM completions & audit logs.
   - Configurable `secretLeakAction`: `REDACT` (default) or `BLOCK` (`SecretLeakBlockedError`).
 
+- ✅ **v1.9: Client-Driven In-Context Replay & GateWall Retries Observability**
+  - Timeline visibility into retry attempts (`attempts`, `maxRetries`, `retriedErrors`) and first-class session states (`RETRYING`, `RECOVERED`).
+  - Zero-infrastructure in-context replay hook (`useTask`) with causal parent linking (`parentRunId`).
+  - Fail-closed HITL auto-expiration (24h SLA timeout rejection with real-time SSE propagation).
+  - Deterministic HMAC-SHA256 task obfuscation (`deriveOpaqueTaskId`) & scoped Anti-IDOR replay guards.
+
+- ✅ **v2.0: Native Bidirectional Idempotency & FinOps Deduplication Engine**
+  - **Outgoing Idempotency (Client ➔ External Providers)**: Automatic causal key propagation via `getIdempotencyKey()` and `getIdempotencyHeaders()` (`Idempotency-Key: ctx.parentRunId ?? ctx.runId`).
+  - **Incoming Idempotency (Client ➔ Host Server)**: In-process server-side guard `withServerIdempotency()` with pluggable memory and `StepStorageAdapter` backends.
+  - **GateWall FinOps Deduplication**: LRU 24h `batchId` idempotency cache on `/api/v1/ingest/events` preventing double-counting of tokens and inference costs upon network retries.
+  - **Storage Architecture Hardening**: Modularization of telemetry storage into dedicated, decoupled helpers (`telemetry-store-helpers.ts`) adhering to Clean Code SRP.
+
 ---
 
 ## 🔮 Upcoming Milestones
 
-### 1. 🏷️ Custom Redaction Terms & GateWall Manager ([FEAT-022](tickets/FEAT-022-custom-redaction-terms-and-gatewall-manager.md))
+### 1. 🏷️ Custom Redaction Terms & GateWall Manager
 - User-defined proprietary dictionary to mask project codenames, enterprise names, and internal hosts.
 - Embedded SQLite persistence (`custom_terms`) and visual cockpit management in GateWall.
 

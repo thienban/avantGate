@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test tests/client-telemetry.test.ts tests/ingest-simulation.test.ts tests/retries-and-ttl.test.ts",
+    "test": "tsx --test tests/client-telemetry.test.ts tests/ingest-simulation.test.ts tests/retries-and-ttl.test.ts tests/ingest-deduplication.test.ts",
     "seed:mock": "tsx scripts/seed-mock.ts",
     "lint": "eslint"
   },

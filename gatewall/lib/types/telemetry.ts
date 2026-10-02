@@ -145,6 +145,7 @@ export const SessionMetadataSchema = z
 export type SessionMetadata = z.infer<typeof SessionMetadataSchema>;
 
 export const TelemetryIngestPayloadSchema = z.object({
+  batchId: z.string().optional(),
   runId: z
     .string()
     .min(1)

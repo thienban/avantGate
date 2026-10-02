@@ -81,6 +81,7 @@ export const createTaskRunner = <TInput, TOutput>(
 
     try {
       const result = await options.handler(input, {
+        runId: newRunId,
         parentRunId,
         attempt: state.attempts,
         taskId: opaqueTaskId,

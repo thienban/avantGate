@@ -16,3 +16,4 @@ export * from "./tool-invoker";
 export * from "./tool-state";
 export * from "./adapters";
 export * from "./telemetry";
+export * from "./idempotency-guard";

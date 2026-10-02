@@ -6,9 +6,7 @@ import {
   TelemetryIngestPayload,
   ToolExecutionEvent,
   StepApprovalRequestEvent,
-  UserFeedbackEvent,
 } from "../types/telemetry";
-import { calculateFallbackTokenCost } from "../finops/fallback-cost-calculator";
 import { detectInfiniteLoop } from "../finops/loop-shield";
 import {
   loadPersistedSessions,
@@ -18,12 +16,25 @@ import {
 } from "./sqlite-driver";
 import { getMockSessions, getMockApprovals } from "./mock-data";
 import { sanitizeErrorMessage, extractBearerToken, formatDate } from "../utils";
+import {
+  ONE_DAY_MS,
+  MAX_PROCESSED_BATCHES,
+  nowIso,
+  add,
+  sortByDateDesc,
+  getEntityScope,
+  resolveScope,
+  extractUserFeedback,
+  computeFinOpsUsage,
+  accumulateMetrics,
+} from "./telemetry-store-helpers";
 
 export { sanitizeErrorMessage };
 
 class TelemetryStore {
   private sessions: Map<string, SessionRun> = new Map();
   private approvals: Map<string, ApprovalItem> = new Map();
+  private processedBatches: Map<string, { runId: string; timestamp: number }> = new Map();
   private apiKeys: Set<string> = new Set([
     "gw_live_dev_test_key_123456789",
     "gw_pub_prospect_ai_123456789",
@@ -35,21 +46,42 @@ class TelemetryStore {
     this.initStore();
   }
 
+  private syncPersistedSessions(): void {
+    for (const s of loadPersistedSessions()) {
+      this.sessions.set(s.runId, s);
+    }
+  }
+
+  private syncPersistedApprovals(): void {
+    for (const a of loadPersistedApprovals()) {
+      this.approvals.set(a.id, a);
+    }
+  }
+
+  private updateSessionStatus(
+    runId: string,
+    newStatus: SessionRun["status"],
+    expectedCurrentStatus?: SessionRun["status"]
+  ): void {
+    const session = this.sessions.get(runId);
+    if (!session || (expectedCurrentStatus && session.status !== expectedCurrentStatus)) {
+      return;
+    }
+    session.status = newStatus;
+    this.sessions.set(runId, session);
+    persistSession(session);
+  }
+
   private initStore(): void {
     const isDemoMode =
       process.env.GATEWALL_DEMO_MODE === "true" ||
       process.env.NEXT_PUBLIC_GATEWALL_DEMO_MODE === "true";
 
     const existingSessions = loadPersistedSessions();
-    const existingApprovals = loadPersistedApprovals();
 
     if (existingSessions.length > 0 && !isDemoMode) {
-      for (const s of existingSessions) {
-        this.sessions.set(s.runId, s);
-      }
-      for (const a of existingApprovals) {
-        this.approvals.set(a.id, a);
-      }
+      this.syncPersistedSessions();
+      this.syncPersistedApprovals();
     } else {
       this.seedInitialData();
       for (const s of this.sessions.values()) {
@@ -78,22 +110,14 @@ class TelemetryStore {
 
   public getSessions(): SessionRun[] {
     this.cleanExpiredApprovals();
-    const persisted = loadPersistedSessions();
-    for (const s of persisted) {
-      this.sessions.set(s.runId, s);
-    }
-    return Array.from(this.sessions.values()).sort(
-      (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
-    );
+    this.syncPersistedSessions();
+    return sortByDateDesc(this.sessions.values(), (s) => s.startTime);
   }
 
   public getSessionById(runId: string): SessionRun | undefined {
     this.cleanExpiredApprovals();
     if (!this.sessions.has(runId)) {
-      const persisted = loadPersistedSessions();
-      for (const s of persisted) {
-        this.sessions.set(s.runId, s);
-      }
+      this.syncPersistedSessions();
     }
     return this.sessions.get(runId);
   }
@@ -104,13 +128,8 @@ class TelemetryStore {
 
   public getApprovals(): ApprovalItem[] {
     this.cleanExpiredApprovals();
-    const persisted = loadPersistedApprovals();
-    for (const a of persisted) {
-      this.approvals.set(a.id, a);
-    }
-    return Array.from(this.approvals.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    this.syncPersistedApprovals();
+    return sortByDateDesc(this.approvals.values(), (a) => a.createdAt);
   }
 
   public decideApproval(
@@ -122,22 +141,21 @@ class TelemetryStore {
     const item = this.approvals.get(id);
     if (!item) return null;
     item.status = decision;
-    item.decidedAt = new Date().toISOString();
+    item.decidedAt = nowIso();
     item.decidedBy = decidedBy;
     item.reason = reason;
     this.approvals.set(id, item);
     persistApproval(item);
 
-    const session = this.sessions.get(item.runId);
-    if (session && session.status === "WAITING_APPROVAL") {
-      session.status = decision === "APPROVED" ? "RUNNING" : "FAILED";
-      this.sessions.set(item.runId, session);
-      persistSession(session);
-    }
+    this.updateSessionStatus(
+      item.runId,
+      decision === "APPROVED" ? "RUNNING" : "FAILED",
+      "WAITING_APPROVAL"
+    );
     return item;
   }
 
-  public cleanExpiredApprovals(maxAgeMs = 24 * 3600 * 1000): ApprovalItem[] {
+  public cleanExpiredApprovals(maxAgeMs = ONE_DAY_MS): ApprovalItem[] {
     const now = Date.now();
     const expired: ApprovalItem[] = [];
 
@@ -146,19 +164,13 @@ class TelemetryStore {
         const createdAtMs = new Date(item.createdAt).getTime();
         if (now - createdAtMs > maxAgeMs) {
           item.status = "REJECTED";
-          item.decidedAt = new Date().toISOString();
+          item.decidedAt = nowIso();
           item.decidedBy = "System (TTL)";
           item.reason = "Auto-expired: SLA timeout exceeded (24h)";
           this.approvals.set(id, item);
           persistApproval(item);
 
-          const session = this.sessions.get(item.runId);
-          if (session && session.status === "WAITING_APPROVAL") {
-            session.status = "FAILED";
-            this.sessions.set(item.runId, session);
-            persistSession(session);
-          }
-
+          this.updateSessionStatus(item.runId, "FAILED", "WAITING_APPROVAL");
           expired.push(item);
         }
       }
@@ -167,162 +179,188 @@ class TelemetryStore {
     return expired;
   }
 
-  public ingest(payload: TelemetryIngestPayload): SessionRun {
-    const existing = this.sessions.get(payload.runId);
-    const toolEvents = payload.events.filter(
-      (e) => e.type === "TOOL_EXECUTION"
-    ) as ToolExecutionEvent[];
+  private resolveExistingBatch(payload: TelemetryIngestPayload): SessionRun | undefined {
+    if (!payload.batchId || !this.processedBatches.has(payload.batchId)) {
+      return undefined;
+    }
+    return this.getSessionById(payload.runId);
+  }
 
-    // Sanitize any sensitive tokens / keys out of retriedErrors
+  private sanitizeToolEvents(events: TelemetryIngestPayload["events"]): ToolExecutionEvent[] {
+    const toolEvents = events.filter(
+      (e): e is ToolExecutionEvent => e.type === "TOOL_EXECUTION"
+    );
     for (const t of toolEvents) {
       if (t.retriedErrors && Array.isArray(t.retriedErrors)) {
         t.retriedErrors = t.retriedErrors.map(sanitizeErrorMessage);
       }
     }
+    return toolEvents;
+  }
 
-    const loopResult = detectInfiniteLoop(toolEvents);
+  private createApprovalItem(
+    payload: TelemetryIngestPayload,
+    approvalReq: StepApprovalRequestEvent
+  ): void {
+    const approvalId = `appr_${payload.runId}_${Date.now()}`;
+    if (this.approvals.has(approvalId)) {
+      return;
+    }
+
+    const newApproval: ApprovalItem = {
+      id: approvalId,
+      runId: payload.runId,
+      agentName: payload.agentName,
+      stepName: approvalReq.stepName,
+      actionType: approvalReq.actionType || "CRITICAL_ACTION",
+      payloadSummary: approvalReq.payloadSummary || {},
+      status: "PENDING",
+      createdAt: nowIso(),
+    };
+    this.approvals.set(approvalId, newApproval);
+    persistApproval(newApproval);
+  }
+
+  private resolveSessionStatus(
+    payload: TelemetryIngestPayload,
+    toolEvents: ToolExecutionEvent[],
+    existing?: SessionRun
+  ): SessionRun["status"] {
     const approvalReq = payload.events.find(
       (e): e is StepApprovalRequestEvent => e.type === "STEP_APPROVAL_REQUEST"
     );
+    if (approvalReq) {
+      this.createApprovalItem(payload, approvalReq);
+      return "WAITING_APPROVAL";
+    }
 
-    const clientSecurityAlerts = payload.events.filter(
-      (e) => e.type === "CLIENT_SECURITY_ALERT"
-    );
-    const clientRenders = payload.events.filter(
-      (e) => e.type === "CLIENT_DATA_RENDERED"
-    );
-    const feedbackEvent = payload.events.find(
-      (e): e is UserFeedbackEvent => e.type === "USER_FEEDBACK"
-    );
-
-    let status: SessionRun["status"] = existing?.status || "RUNNING";
     const hasFailedStep = payload.events.some((e) => e.type === "STEP_FAILED");
     const hasFailedTool = toolEvents.some(
       (t) => t.success === false && (t.attempts === undefined || t.attempts >= (t.maxRetries || 1))
     );
-
-    if (approvalReq) {
-      status = "WAITING_APPROVAL";
-      const approvalId = `appr_${payload.runId}_${Date.now()}`;
-      if (!this.approvals.has(approvalId)) {
-        const newApproval: ApprovalItem = {
-          id: approvalId,
-          runId: payload.runId,
-          agentName: payload.agentName,
-          stepName: approvalReq.stepName,
-          actionType: approvalReq.actionType || "CRITICAL_ACTION",
-          payloadSummary: approvalReq.payloadSummary || {},
-          status: "PENDING",
-          createdAt: new Date().toISOString(),
-        };
-        this.approvals.set(approvalId, newApproval);
-        persistApproval(newApproval);
-      }
-    } else if (hasFailedStep || hasFailedTool) {
-      status = "FAILED";
-    } else if (payload.events.some((e) => e.type === "STEP_COMPLETED")) {
-      status = "COMPLETED";
+    if (hasFailedStep || hasFailedTool) {
+      return "FAILED";
     }
 
-    const hasRetriesOccurred =
-      Boolean(existing?.hasRetriesOccurred) ||
-      toolEvents.some((t) => (t.attempts || 1) > 1);
+    if (payload.events.some((e) => e.type === "STEP_COMPLETED")) {
+      return "COMPLETED";
+    }
 
-    const currentTenantId = payload.tenantId || (payload.metadata?.tenantId as string | undefined);
-    const currentTaskId = payload.taskId || (payload.metadata?.taskId as string | undefined);
+    return existing?.status || "RUNNING";
+  }
 
+  private validateReplayAuthorization(
+    payload: TelemetryIngestPayload,
+    parent: SessionRun,
+    retryOf: string
+  ): boolean {
+    const curTenant = getEntityScope(payload, "tenantId");
+    const curTask = getEntityScope(payload, "taskId");
+    const parTenant = getEntityScope(parent, "tenantId");
+    const parTask = getEntityScope(parent, "taskId");
+
+    const isTenantMatch = !parTenant || (curTenant !== undefined && parTenant === curTenant);
+    const isTaskMatch = !parTask || (curTask !== undefined && parTask === curTask);
+    const isAgentMatch = parent.agentName === payload.agentName;
+
+    if (isTenantMatch && isTaskMatch && isAgentMatch) {
+      return true;
+    }
+
+    console.warn(
+      `[SECURITY ALERT] Unauthorized replay link attempt blocked: runId=${payload.runId} targeting parent=${retryOf}`
+    );
+    return false;
+  }
+
+  private linkReplayParent(payload: TelemetryIngestPayload, status: SessionRun["status"]): void {
     const retryOf = payload.metadata?.retryOf;
-    if (retryOf) {
-      const parentSession = this.sessions.get(retryOf);
-      if (parentSession) {
-        // Validation conjointe de sécurité (Anti-BOLA & Anti-Confusion Sémantique)
-        const parentTenantId = parentSession.tenantId || (parentSession.metadata?.tenantId as string | undefined);
-        const parentTaskId = parentSession.taskId || (parentSession.metadata?.taskId as string | undefined);
+    if (!retryOf) return;
 
-        const isTenantMatch = !parentTenantId || (currentTenantId !== undefined && parentTenantId === currentTenantId);
-        const isTaskMatch = !parentTaskId || (currentTaskId !== undefined && parentTaskId === currentTaskId);
-        const isAgentMatch = parentSession.agentName === payload.agentName;
+    const parent = this.sessions.get(retryOf);
+    if (!parent) return;
 
-        const isAuthorizedReplay = isTenantMatch && isTaskMatch && isAgentMatch;
-
-        if (!isAuthorizedReplay) {
-          console.warn(
-            `[SECURITY ALERT] Unauthorized replay link attempt blocked: runId=${payload.runId} targeting parent=${retryOf} ` +
-            `(Tenant match: ${isTenantMatch}, Task match: ${isTaskMatch}, Agent match: ${isAgentMatch})`
-          );
-        } else {
-          parentSession.metadata = {
-            ...(parentSession.metadata || {}),
-            replayedBy: payload.runId,
-          };
-          parentSession.replayedBy = payload.runId;
-          if (status === "COMPLETED") {
-            parentSession.status = "RECOVERED";
-          } else if (status === "FAILED") {
-            parentSession.status = "FAILED";
-          } else {
-            parentSession.status = "RETRYING";
-          }
-          this.sessions.set(retryOf, parentSession);
-          persistSession(parentSession);
-        }
-      }
+    if (!this.validateReplayAuthorization(payload, parent, retryOf)) {
+      return;
     }
 
-    const modelName = payload.usage?.model || existing?.model || "gpt-4o-mini";
-    const promptTokens = payload.usage?.promptTokens || 0;
-    const completionTokens = payload.usage?.completionTokens || 0;
-    const totalTokens = payload.usage?.totalTokens || promptTokens + completionTokens;
-    const costUsd =
-      payload.usage?.costUsd !== undefined
-        ? payload.usage.costUsd
-        : calculateFallbackTokenCost(modelName, promptTokens, completionTokens);
+    parent.metadata = { ...(parent.metadata || {}), replayedBy: payload.runId };
+    parent.replayedBy = payload.runId;
+    parent.status = status === "COMPLETED" ? "RECOVERED" : status === "FAILED" ? "FAILED" : "RETRYING";
+    this.sessions.set(retryOf, parent);
+    persistSession(parent);
+  }
 
-    const piiFiltered = toolEvents.reduce((acc, t) => acc + (t.piiFilteredCount || 0), 0);
-    const lastToolWithRetries = [...toolEvents].reverse().find((t) => t.retriedErrors && t.retriedErrors.length > 0);
-    const finalRetriedErrors = lastToolWithRetries?.retriedErrors || existing?.retriedErrors;
+  private assembleSessionRun(
+    payload: TelemetryIngestPayload,
+    toolEvents: ToolExecutionEvent[],
+    status: SessionRun["status"],
+    existing?: SessionRun
+  ): SessionRun {
+    const usage = computeFinOpsUsage(payload, existing);
+    const isFinished = status === "COMPLETED" || status === "RECOVERED";
+    const lastTool = [...toolEvents].reverse().find((t) => t.retriedErrors && t.retriedErrors.length > 0);
 
-    const sessionRun: SessionRun = {
+    return {
       id: payload.runId,
       runId: payload.runId,
       agentName: payload.agentName,
-      tenantId: currentTenantId || existing?.tenantId,
-      taskId: currentTaskId || existing?.taskId,
+      tenantId: resolveScope(payload, existing, "tenantId"),
+      taskId: resolveScope(payload, existing, "taskId"),
       status,
-      startTime: existing?.startTime || payload.timestamp || new Date().toISOString(),
-      endTime: status === "COMPLETED" || status === "RECOVERED" ? new Date().toISOString() : undefined,
-      durationMs:
-        (existing?.durationMs || 0) +
-        (toolEvents.reduce((acc, t) => acc + (t.durationMs || 0), 0) || 500),
-      totalCostUsd: Number(((existing?.totalCostUsd || 0) + costUsd).toFixed(6)),
-      totalTokens: (existing?.totalTokens || 0) + totalTokens,
-      promptTokens: (existing?.promptTokens || 0) + promptTokens,
-      completionTokens: (existing?.completionTokens || 0) + completionTokens,
-      model: modelName,
-      eventsCount: (existing?.eventsCount || 0) + payload.events.length,
-      toolsUsedCount: (existing?.toolsUsedCount || 0) + toolEvents.length,
-      piiFilteredCount: (existing?.piiFilteredCount || 0) + piiFiltered,
-      loopAlertTriggered: loopResult.isLoopDetected || Boolean(existing?.loopAlertTriggered),
-      clientSecurityAlertsCount:
-        (existing?.clientSecurityAlertsCount || 0) + clientSecurityAlerts.length,
-      clientDataRenderedCount:
-        (existing?.clientDataRenderedCount || 0) + clientRenders.length,
-      hasRetriesOccurred,
-      retriedErrors: finalRetriedErrors,
+      startTime: existing?.startTime || payload.timestamp || nowIso(),
+      endTime: isFinished ? nowIso() : undefined,
+      model: usage.model,
+      loopAlertTriggered: detectInfiniteLoop(toolEvents).isLoopDetected || Boolean(existing?.loopAlertTriggered),
+      hasRetriesOccurred: Boolean(existing?.hasRetriesOccurred) || toolEvents.some((t) => (t.attempts || 1) > 1),
+      retriedErrors: lastTool?.retriedErrors || existing?.retriedErrors,
       metadata: payload.metadata || existing?.metadata,
-      userFeedback: feedbackEvent
-        ? {
-            rating: feedbackEvent.rating,
-            tag: feedbackEvent.feedbackTag,
-            comment: feedbackEvent.userComment,
-          }
-        : existing?.userFeedback,
+      userFeedback: extractUserFeedback(payload.events, existing?.userFeedback),
       events: existing ? [...existing.events, ...payload.events] : payload.events,
+      ...accumulateMetrics(existing, payload, toolEvents, usage),
     };
+  }
 
+  private recordProcessedBatch(batchId?: string, runId?: string): void {
+    if (!batchId || !runId) return;
+
+    this.processedBatches.set(batchId, { runId, timestamp: Date.now() });
+    if (this.processedBatches.size <= MAX_PROCESSED_BATCHES) return;
+
+    const threshold = Date.now() - ONE_DAY_MS;
+    for (const [id, meta] of this.processedBatches.entries()) {
+      if (meta.timestamp < threshold) {
+        this.processedBatches.delete(id);
+      }
+    }
+  }
+
+  public ingest(payload: TelemetryIngestPayload): SessionRun {
+    const cached = this.resolveExistingBatch(payload);
+    if (cached) {
+      return cached;
+    }
+
+    const existing = this.sessions.get(payload.runId);
+    const toolEvents = this.sanitizeToolEvents(payload.events);
+    const status = this.resolveSessionStatus(payload, toolEvents, existing);
+
+    this.linkReplayParent(payload, status);
+
+    const sessionRun = this.assembleSessionRun(payload, toolEvents, status, existing);
     this.sessions.set(payload.runId, sessionRun);
     persistSession(sessionRun);
+    this.recordProcessedBatch(payload.batchId, payload.runId);
+
     return sessionRun;
+  }
+
+  public isBatchProcessed(batchId: string): boolean {
+    return this.processedBatches.has(batchId);
+  }
+
+  public clearProcessedBatches(): void {
+    this.processedBatches.clear();
   }
 
   public getFinOpsSummary(): FinOpsSummary {
@@ -332,6 +370,8 @@ class TelemetryStore {
     const uniqueAgents = new Set(runs.map((r) => r.agentName)).size;
 
     const costByModel: Record<string, { costUsd: number; tokens: number; count: number }> = {};
+    const dailyMap: Record<string, { costUsd: number; tokens: number; runs: number }> = {};
+
     for (const run of runs) {
       if (!costByModel[run.model]) {
         costByModel[run.model] = { costUsd: 0, tokens: 0, count: 0 };
@@ -339,10 +379,7 @@ class TelemetryStore {
       costByModel[run.model].costUsd += run.totalCostUsd;
       costByModel[run.model].tokens += run.totalTokens;
       costByModel[run.model].count += 1;
-    }
 
-    const dailyMap: Record<string, { costUsd: number; tokens: number; runs: number }> = {};
-    for (const run of runs) {
       const date = formatDate(run.startTime);
       if (!dailyMap[date]) {
         dailyMap[date] = { costUsd: 0, tokens: 0, runs: 0 };
@@ -406,7 +443,7 @@ class TelemetryStore {
     }
 
     return Object.entries(toolMap).map(([toolName, stats]) => {
-      const avgDuration = stats.durations.reduce((a, b) => a + b, 0) / (stats.durations.length || 1);
+      const avgDuration = stats.durations.reduce(add, 0) / (stats.durations.length || 1);
       const sorted = [...stats.durations].sort((a, b) => a - b);
       const p95 = sorted[Math.floor(sorted.length * 0.95)] || avgDuration;
 

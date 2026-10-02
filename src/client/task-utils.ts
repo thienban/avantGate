@@ -74,3 +74,15 @@ export const validateRetryEligibility = ({
     throw new Error("Cannot retry: no previous execution input found");
   }
 };
+
+export const getIdempotencyKey = (ctx: {
+  runId: string;
+  parentRunId?: string | null;
+}): string => ctx.parentRunId ?? ctx.runId;
+
+export const getIdempotencyHeaders = (ctx: {
+  runId: string;
+  parentRunId?: string | null;
+}): Record<string, string> => ({
+  "Idempotency-Key": getIdempotencyKey(ctx),
+});

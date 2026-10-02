@@ -2,6 +2,7 @@
  * Context provided to task handlers during execution.
  */
 export interface TaskExecutionContext {
+  runId: string;
   parentRunId?: string;
   attempt: number;
   taskId: string;
