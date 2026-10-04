@@ -143,7 +143,7 @@ In accordance with clean code standards and strict architectural rigor:
 
 ### 5. 📚 Documentation Refactoring
 
-- **New [`docs/examples.md`](../examples.md)**: Exhaustive compilation of 11 core recipes (completions, Zod auto-repair, multi-model failover, PII masking, pre-flight budgets, prompt engine, etc.).
+- **New [`examples/`](../../examples/README.md)**: Exhaustive compilation of core recipes (completions, Zod auto-repair, multi-model failover, PII masking, pre-flight budgets, prompt engine, etc.).
 - **Streamlined [`README.md`](../../README.md)**: Reduced from 536 to 199 lines, focused on core value proposition with direct links to specialized guides.
 - **GateWall Platform Alignment**: Clear positioning of the enterprise offering (Enterprise AI-WAF, Corporate DLP, Reversible Ephemeral Tokenization Vault).
 

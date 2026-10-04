@@ -92,4 +92,4 @@ Explore the complete documentation organized by functional pillars:
 | 🔄 **Workflows** | Sagas, checkpoints & Human-in-the-Loop | [Durable Workflows Engine](workflows/durable-workflows.md) |
 | 📊 **Observability** | Cockpit UI, telemetry & React hook | [GateWall Cockpit](observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](observability/telemetry-and-browser-sdk.md) |
 | 💶 **Finance** | Normalization & European VAT | [Financial Normalizer](finance/normalizer.md) |
-| 📖 **Cookbook** | Code recipes & cheat sheet | [AvantGate Cookbook](examples.md) |
+| 📖 **Cookbook** | Code recipes & cheat sheet | [AvantGate Cookbook](../examples/README.md) |

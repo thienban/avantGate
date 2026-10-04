@@ -46,6 +46,14 @@ This document tracks completed milestones and the upcoming architectural roadmap
   - **GateWall FinOps Deduplication**: LRU 24h `batchId` idempotency cache on `/api/v1/ingest/events` preventing double-counting of tokens and inference costs upon network retries.
   - **Storage Architecture Hardening**: Modularization of telemetry storage into dedicated, decoupled helpers (`telemetry-store-helpers.ts`) adhering to Clean Code SRP.
 
+- ✅ **v2.1: Headless UI Canvas Submodule (`avantgate/ui`) & React Presentation Plane (`avantgate/ui/react`)**
+  - **Canonical Tool Envelope Protocol (`ToolExecutionEnvelope`)**: Standardized contract carrying merge strategies (`REPLACE`, `APPEND_UNIQUE`, `UPDATE_ENTITY`) and visual intentions (`UIIntent`).
+  - **Deterministic Concurrency Reducer (`createCanvasReducer`)**: $O(N)$ Set-based algebraic convergence resolving parallel tool calling race conditions and out-of-order responses without state loss.
+  - **End-to-End Typed Application Factory (`defineCanvas`)**: Connects client canvas schemas to typed envelopes and reducer in a single line.
+  - **React View Registry (`createViewRegistry`)**: Instant $O(1)$ polymorphic component dispatch with `React.createElement` (zero JSX runtime lock-in, native compatibility with shadcn/ui and Tailwind).
+  - **Native Anti-XSS Sanitizer Guard (`isValidSafeUrl`)**: WHATWG standard URL scanner neutralizing `javascript:`, `data:`, and protocol-relative (`//evil.com`) redirect vectors without external dependencies.
+  - **Zero-Dependency Supply-Chain Architecture**: Ultra-compact footprint (< 2.5 KB minified), 0 new runtime dependencies, and optional React peer dependency.
+
 ---
 
 ## 🔮 Upcoming Milestones

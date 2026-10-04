@@ -1,7 +1,7 @@
 # 🛡️ AvantGate (`avantgate`)
 
-> **The Zero-Infrastructure, In-Process AI Application Firewall (AI-WAF), Deterministic Workflow Engine & Privacy Guard for TypeScript.**  
-> Real-time prompt guardrails, zero-egress PII redaction, deterministic Saga workflows, anti-IDOR tool boundary, and pre-flight token defense **without hosting Docker, proxies, PostgreSQL, ClickHouse, or Redis.**
+> **The Zero-Infrastructure, In-Process AI Application Firewall (AI-WAF), Deterministic Workflow Engine, Privacy Guard & Headless UI Canvas for TypeScript.**  
+> Real-time prompt guardrails, zero-egress PII redaction, deterministic Saga workflows, canonical tool envelopes, anti-IDOR tool boundary, and pre-flight token defense **without hosting Docker, proxies, PostgreSQL, ClickHouse, or Redis.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue?logo=typescript)](https://www.typescriptlang.org/)
@@ -73,7 +73,7 @@ bun run dev   # or npm run dev
 | **🛡️ Loop Shield (Anti-Cycle Guard)** | Early visual detection of recursive agent loops and aberrant repetitive tool execution cycles. |
 | **💾 Zero-External-DB SQLite Storage** | Zero setup overhead: persistent storage uses embedded SQLite (`gatewall/data/gatewall.db`) without requiring PostgreSQL, Redis, or ClickHouse. |
 
-> 💡 **Agent Integration Recipes:** See [Connecting an Agent to GateWall Cockpit](docs/examples.md#12-connecting-an-agent-to-gatewall-cockpit-gatewall) in `docs/examples.md` for complete code recipes using `HttpTelemetryExporter` (`avantgate/agent`), direct HTTP ingestion, and React front-end streaming (`avantgate/client`).
+> 💡 **Agent Integration Recipes:** See [GateWall Telemetry Recipe](examples/observability/10-gatewall-telemetry.ts) and [Integration Cookbook](examples/README.md) for complete code recipes using `HttpTelemetryExporter` (`avantgate/agent`), direct HTTP ingestion, and React front-end streaming (`avantgate/client`).
 
 ---
 
@@ -92,6 +92,7 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 | 🛑 **Agent Isolation & Anti-IDOR** | • **Dual-Channel DTOs**: Streams full records to UI while injecting sanitized summaries into LLM.<br/>• **Anti-IDOR Boundary**: Compile-time tenant scoping (`createTenantTool`) & runtime ownership checks.<br/>• **Server Idempotency Guard**: Zero-infra in-process guard (`withServerIdempotency`) with memory or storage adapters.<br/>• **Infinite Loop Shield**: Detects and breaks recursive agent tool execution loops. |
 | 💰 **FinOps & Resilience** | • **Denial-of-Wallet**: Enforces hard token & USD budgets *before* external inference spend.<br/>• **Multi-Model Failover**: Instant client-side routing to fallback models or local Ollama on 429/500.<br/>• **FinOps Batch Deduplication**: Prevents double-counting of tokens & costs during network retries on GateWall.<br/>• **Live Cost Ledger**: Token burn calculation & pricing adapters with zero external DB. |
 | ⚡ **Sagas, Replay & Telemetry** | • **Deterministic Sagas (`avantgate/workflow`)**: In-process FSM with automatic reverse compensation ($k-1 \to 0$).<br/>• **In-Context Replay (`avantgate/client`)**: React hook (`useTask`) with causal parent linkage (`parentRunId`) & `Idempotency-Key`.<br/>• **Human-in-the-Loop (HITL)**: Non-blocking suspension, approval queues & fail-closed 24h SLA timeout (TTL).<br/>• **Lightweight Telemetry**: < 1.7 KB client SDK & async audit bridge to GateWall. |
+| 🎨 **Presentation Plane (`avantgate/ui`)** | • **Canonical Tool Envelopes**: Typed format carrying merge strategies (`REPLACE`, `APPEND_UNIQUE`, `UPDATE_ENTITY`) & `UIIntent`.<br/>• **Deterministic Concurrency Reducer**: Algebraic $O(N)$ Set-based convergence solving parallel tool calling races.<br/>• **React View Registry (`avantgate/ui/react`)**: Polymorphic $O(1)$ dynamic dispatch linking tools to your design system (shadcn/ui).<br/>• **Native Anti-XSS Guard**: Zero-dependency WHATWG `URL` scanner neutralizing `javascript:` & protocol-relative (`//evil.com`) vectors. |
 
 ---
 
@@ -99,14 +100,15 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 
 | Category | In-Depth Guides |
 |---|---|
-| 🚀 **Quickstart** | [Getting Started](docs/getting-started.md) • [Integration Cookbook](docs/examples.md) |
+| 🚀 **Quickstart** | [Getting Started](docs/getting-started.md) • [Integration Cookbook](examples/README.md) |
 | 🛡️ **Security & AI-WAF** | [Prompt Guardrails](docs/security/prompt-guardrails.md) • [PII Redaction](docs/security/pii-redaction.md) • [Anti-IDOR Defense](docs/security/anti-idor.md) • [End-to-End Security](docs/security/end-to-end-security.md) |
 | 💰 **FinOps & Cost** | [Pre-Flight Budget Guards](docs/finops/budget-guards.md) • [Pricing Adapters & SQLite](docs/finops/pricing-adapters.md) |
 | 🤖 **Agents & Tools** | [Isolated Tools & DTOs](docs/agents/isolated-tools.md) • [Agent Runtime Manual](docs/agents/agent-runtime.md) • [Inter-Tool Chaining](docs/agents/inter-tool-chaining.md) |
 | 🔄 **Deterministic Sagas** | [Durable Workflows Engine](docs/workflows/durable-workflows.md) |
 | 📊 **Observability & Cockpit** | [GateWall Cockpit Console](docs/observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) • [GateWall vs. Temporal](docs/observability/temporal-and-gatewall.md) |
 | 💶 **Accounting** | [Financial Normalizer](docs/finance/normalizer.md) |
-| 🚀 **Release Notes** | [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
+| 🎨 **Presentation Plane** | [Headless UI Canvas & React Bindings](docs/ui/headless-canvas.md) |
+| 🚀 **Release Notes** | [v2.1.0 Release Notes](docs/release/release-2.1.0.md) • [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
 
 ---
 
@@ -125,6 +127,7 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 | **Multi-Model Failover** | ❌ App crashes | ⚠️ Proxy-dependent | ✅ **Built-in Fallback Router & Exponential Retry** |
 | **Zod Schema Auto-Repair** | ❌ No | ❌ No | ✅ **Built-in JSON Heuristic Repair** |
 | **Hierarchical Session Replay** | ❌ None | ⚠️ Flat span waterfall | ✅ **Causality Tree + In-Context Replay (`useTask`)** |
+| **Headless UI Canvas State** | ❌ Manual parsing | ❌ Not supported | ✅ **Canonical Envelopes + Parallel Reducer (`avantgate/ui`)** |
 
 ---
 
@@ -140,13 +143,17 @@ yarn add avantgate zod
 
 ### 🧩 Subpath Exports
 
-| Import Path | Description |
-|---|---|
-| `avantgate` | Core control plane: token budgets, cost ledger, prompt guards, multi-model failover & Zod repair. |
-| `avantgate/finance` | Financial data normalizer (accounting parentheses, EU/US/UK/CH currencies & magnitudes). |
-| `avantgate/agent` | Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation, server idempotency (`withServerIdempotency`), & storage adapters. |
-| `avantgate/workflow` | Deterministic sequential state machine, automatic reverse Saga rollback, durable HITL checkpoints & agent tool conversion. |
-| `avantgate/client` | Front-end SDK (< 1.7 KB) with in-context task replay (`useTask`, `createTaskRunner`), causal idempotency helpers (`getIdempotencyHeaders`), & GateWall telemetry adapter. |
+| Import Path | Description | Documentation |
+|---|---|---|
+| `avantgate` | Core control plane: token budgets, cost ledger, prompt guards, multi-model failover & Zod repair. | [Getting Started](docs/getting-started.md) |
+| `avantgate/finance` | Financial data normalizer (accounting parentheses, EU/US/UK/CH currencies & magnitudes). | [Financial Normalizer](docs/finance/normalizer.md) |
+| `avantgate/agent` | Durable step runner, Human-in-the-Loop, dual-channel PII tool isolation, server idempotency (`withServerIdempotency`), & storage adapters. | [Isolated Tools & DTOs](docs/agents/isolated-tools.md) |
+| `avantgate/workflow` | Deterministic sequential state machine, automatic reverse Saga rollback, durable HITL checkpoints & agent tool conversion. | [Durable Workflows](docs/workflows/durable-workflows.md) |
+| `avantgate/client` | Front-end SDK (< 1.7 KB) with in-context task replay (`useTask`, `createTaskRunner`), causal idempotency helpers (`getIdempotencyHeaders`), & GateWall telemetry adapter. | [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) |
+| `avantgate/ui` | Headless UI canvas core (< 2.5 KB): canonical tool envelopes, deterministic $O(N)$ parallel reducer, `defineCanvas` factory. | [Headless UI Canvas](docs/ui/headless-canvas.md) |
+| `avantgate/ui/react` | React presentation plane: polymorphic $O(1)$ view registry (`createViewRegistry`), `CanvasRenderer`, & anti-XSS URL sanitizer (`isValidSafeUrl`). | [Headless UI Canvas](docs/ui/headless-canvas.md) |
+
+> 💡 **UI Canvas Cookbook:** See [Headless UI Canvas & React Bindings](docs/ui/headless-canvas.md) for complete step-by-step recipes connecting agent tools with typed envelopes and custom React views (shadcn/ui, Tailwind).
 
 ---
 
