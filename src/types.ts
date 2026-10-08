@@ -82,6 +82,16 @@ export interface ProviderConfig {
   pricing?: ModelPrice;
 }
 
+export type TermCategory = "PROJECT" | "COMPANY" | "INFRA" | "CUSTOM";
+
+export interface CustomRedactionTermDef {
+  id?: string;
+  term: string;
+  mask?: string;
+  category?: TermCategory;
+  caseSensitive?: boolean;
+}
+
 export interface SecurityConfig {
   detectPromptInjection?: boolean;
   maskPII?: boolean;
@@ -89,6 +99,7 @@ export interface SecurityConfig {
   outputDLP?: boolean;
   blockSecretLeaks?: boolean;
   secretLeakAction?: "REDACT" | "BLOCK";
+  customRedactionTerms?: Array<string | CustomRedactionTermDef>;
 }
 
 export interface RetryConfig {

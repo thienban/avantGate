@@ -1,5 +1,8 @@
-import { SecretLeakBlockedError } from "./types";
+import { SecretLeakBlockedError, CustomRedactionTermDef } from "./types";
 import { sanitizePII } from "./sanitizer";
+import { sanitizeCustomTerms, CustomTermsSanitizationResult } from "./custom-terms";
+
+export { sanitizeCustomTerms, CustomTermsSanitizationResult };
 
 export interface SecretPatternDef {
   type: string;
@@ -103,6 +106,7 @@ export interface OutputGuardOptions {
   maskPII?: boolean;
   blockSecretLeaks?: boolean;
   secretLeakAction?: "REDACT" | "BLOCK";
+  customRedactionTerms?: Array<string | CustomRedactionTermDef>;
 }
 
 export interface OutputGuardResult {
@@ -110,6 +114,7 @@ export interface OutputGuardResult {
   sanitized: boolean;
   secretDetected: boolean;
   piiMaskedCount: number;
+  customTermsMaskedCount: number;
   detections: SecretDetection[];
 }
 
@@ -119,6 +124,7 @@ export const applyOutputGuards = (
 ): OutputGuardResult => {
   let currentText = rawOutput;
   let piiCount = 0;
+  let customTermsCount = 0;
 
   // 1. Masquage PII en sortie si activé
   if (options?.maskPII) {
@@ -131,7 +137,14 @@ export const applyOutputGuards = (
   const secretResult = sanitizeSecrets(currentText);
   currentText = secretResult.text;
 
-  // 3. Si action = BLOCK et présence de secrets, lever l'exception
+  // 3. Masquage des termes personnalisés propriétaires
+  if (options?.customRedactionTerms && options.customRedactionTerms.length > 0) {
+    const customResult = sanitizeCustomTerms(currentText, options.customRedactionTerms);
+    currentText = customResult.text;
+    customTermsCount = customResult.maskedCount;
+  }
+
+  // 4. Si action = BLOCK et présence de secrets, lever l'exception
   if (secretResult.hasSecrets && options?.secretLeakAction === "BLOCK") {
     const types = secretResult.detections.map((d) => d.type).join(", ");
     throw new SecretLeakBlockedError(
@@ -142,9 +155,10 @@ export const applyOutputGuards = (
 
   return {
     text: currentText,
-    sanitized: piiCount > 0 || secretResult.hasSecrets,
+    sanitized: piiCount > 0 || secretResult.hasSecrets || customTermsCount > 0,
     secretDetected: secretResult.hasSecrets,
     piiMaskedCount: piiCount,
+    customTermsMaskedCount: customTermsCount,
     detections: secretResult.detections,
   };
 };

@@ -33,32 +33,17 @@ flowchart LR
 
 ---
 
-## 🖥️ GateWall Cockpit — Self-Hosted AI-WAF & Governance Console (`gatewall/`)
+## 🖥️ Optional Visual Cockpit — GateWall (`gatewall`)
 
-While the **AvantGate SDK** provides zero-infrastructure, in-process control inside your application runtime, the included **GateWall Cockpit** (`gatewall/`) provides a full-featured, self-hosted visual control plane, real-time audit inspector, and Human-in-the-Loop approval.
+While the **AvantGate SDK (`avantgate`)** runs **100% headless and in-process** inside your application runtime (zero servers, zero network latency), an optional visual control plane, **GateWall**, is available as a standalone repository for teams requiring a visual dashboard, real-time audit inspector, and Human-in-the-Loop approval interface.
 
 ```mermaid
 flowchart LR
-    Agent[🤖 AvantGate Agent / SDK] -- "POST /api/v1/ingest/events<br/>(Async Telemetry)" --> GateWall["🛡️ GateWall Cockpit<br/>(Next.js + SQLite)"]
-    GateWall -- "SSE /api/v1/realtime" --> Browser["💻 Web Dashboard<br/>(http://localhost:3000)"]
-    Browser -- "POST /api/v1/approvals<br/>(Approve / Reject)" --> GateWall
+    Agent[🤖 AvantGate In-Process Agent] -- "Optional HTTP Telemetry" --> GateWall["🛡️ Standalone GateWall Cockpit<br/>(Dedicated Repository)"]
+    GateWall -- "SSE Real-Time Stream" --> Browser["💻 Web Dashboard<br/>(localhost:3000)"]
 ```
 
-### 🚀 Quickstart: Run GateWall Cockpit
-
-#### Option 1: One-Line Docker Compose (Recommended)
-```bash
-docker compose up -d
-# or: npm run gatewall:docker
-```
-Open **`http://localhost:3000`** in your browser 🎉. Traces and audit sessions are automatically persisted.
-
-#### Option 2: Run with Bun or Node.js
-```bash
-cd gatewall
-bun install   # or npm install
-bun run dev   # or npm run dev
-```
+> 💡 **Standalone Repository:** GateWall Cockpit is maintained independently at `../gatewall`. If your application runs headless, you do **not** need to deploy or run GateWall — all guardrails, PII redactions, and token budgets execute directly within your Node.js process.
 
 ---
 
@@ -71,7 +56,8 @@ bun run dev   # or npm run dev
 | **⚡ Real-Time Streaming (SSE)** | Low-latency Server-Sent Events (`/api/v1/realtime`) updating session trees, metrics, and alerts dynamically without manual page refresh. |
 | **💰 FinOps & Token Tracking** | Automated token cost estimation and USD burn tracking across providers (GPT-4o, Claude 3.5 Sonnet, DeepSeek, etc.). |
 | **🛡️ Loop Shield (Anti-Cycle Guard)** | Early visual detection of recursive agent loops and aberrant repetitive tool execution cycles. |
-| **💾 Zero-External-DB SQLite Storage** | Zero setup overhead: persistent storage uses embedded SQLite (`gatewall/data/gatewall.db`) without requiring PostgreSQL, Redis, or ClickHouse. |
+| **💾 Pluggable Hexagonal Storage** | Zero setup overhead by default with embedded SQLite (`gatewall/data/gatewall.db`), zero-disk in-memory storage for CI tests, and production-ready PostgreSQL/Prisma adapter (`STORAGE_DRIVER=prisma`). |
+| **🔏 Custom Redaction Terms Manager** | Interactive visual manager in the Security Cockpit to register, categorize (Project, Company, Infra), and redact proprietary secrets and NDA keywords in-flight. |
 
 > 💡 **Agent Integration Recipes:** See [GateWall Telemetry Recipe](examples/observability/10-gatewall-telemetry.ts) and [Integration Cookbook](examples/README.md) for complete code recipes using `HttpTelemetryExporter` (`avantgate/agent`), direct HTTP ingestion, and React front-end streaming (`avantgate/client`).
 

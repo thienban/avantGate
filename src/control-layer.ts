@@ -15,7 +15,7 @@ import { sanitizePII } from "./sanitizer";
 import { calculateCostUSD, CachedPricingAdapter, resolveModelPriceAsync } from "./pricing";
 import { validateWithZod } from "./response-validator";
 import { createHttpProviderClient } from "./providers/http-client";
-import { applyOutputGuards } from "./secret-guard";
+import { applyOutputGuards, sanitizeCustomTerms } from "./secret-guard";
 
 interface ProviderDispatchOutput {
   responseText: string;
@@ -98,18 +98,25 @@ export class AvantGateControlLayer {
       throw new Error(`[AvantGate Security Guard] Request blocked: ${guard.blockedReason}`);
     }
 
-    if (this.config.security?.maskPII) {
-      return sanitizePII(userQuery).text;
+    let processed = userQuery;
+
+    if (this.config.security?.customRedactionTerms && this.config.security.customRedactionTerms.length > 0) {
+      processed = sanitizeCustomTerms(processed, this.config.security.customRedactionTerms).text;
     }
 
-    return userQuery;
+    if (this.config.security?.maskPII) {
+      return sanitizePII(processed).text;
+    }
+
+    return processed;
   };
 
   private applyOutputSecurityGuards = (rawOutput: string): string => {
     const isDlpEnabled = this.config.security?.outputDLP ?? this.config.security?.maskPII ?? false;
     const shouldCheckSecrets = this.config.security?.blockSecretLeaks ?? true;
+    const customTerms = this.config.security?.customRedactionTerms;
 
-    if (!isDlpEnabled && !shouldCheckSecrets) {
+    if (!isDlpEnabled && !shouldCheckSecrets && (!customTerms || customTerms.length === 0)) {
       return rawOutput;
     }
 
@@ -117,6 +124,7 @@ export class AvantGateControlLayer {
       maskPII: isDlpEnabled,
       blockSecretLeaks: shouldCheckSecrets,
       secretLeakAction: this.config.security?.secretLeakAction ?? "REDACT",
+      customRedactionTerms: customTerms,
     });
 
     return guardResult.text;

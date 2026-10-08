@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF), privacy control plane & headless UI canvas for TypeScript: real-time prompt guardrails, zero-egress PII redaction, deterministic tool envelopes, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
   "author": "Gatewall Team",
   "license": "MIT",
@@ -69,15 +69,15 @@
       "import": "./dist/client/index.mjs",
       "require": "./dist/client/index.js"
     },
-    "./ui": {
-      "types": "./dist/ui/index.d.ts",
-      "import": "./dist/ui/index.mjs",
-      "require": "./dist/ui/index.js"
-    },
     "./ui/react": {
       "types": "./dist/ui/react/index.d.ts",
       "import": "./dist/ui/react/index.mjs",
       "require": "./dist/ui/react/index.js"
+    },
+    "./ui": {
+      "types": "./dist/ui/index.d.ts",
+      "import": "./dist/ui/index.mjs",
+      "require": "./dist/ui/index.js"
     },
     "./package.json": "./package.json"
   },
@@ -107,12 +107,6 @@
     "test:workflow": "tsx tests/workflow/workflow-saga.test.ts && tsx tests/workflow/workflow-abort.test.ts",
     "test:client": "tsx tests/client/browser-exporter.test.ts && tsx tests/client/use-avantgate-task.test.ts && tsx tests/client/task-runner.test.ts",
     "test:demo": "tsx tests/agent/prospect-ai-demo-scenario.test.ts",
-    "gatewall": "npm --prefix gatewall run dev",
-    "gatewall:dev": "npm --prefix gatewall run dev",
-    "gatewall:build": "npm --prefix gatewall run build",
-    "gatewall:seed": "npm --prefix gatewall run seed:mock",
-    "gatewall:start": "npm --prefix gatewall run start",
-    "gatewall:docker": "docker compose up -d",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm test"
   },
@@ -139,3 +133,4 @@
     "url": "https://github.com/thienban/avantGate/issues"
   }
 }
+

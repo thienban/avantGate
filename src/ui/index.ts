@@ -16,3 +16,11 @@ export {
 } from "./reducer";
 
 export { defineCanvas } from "./define-canvas";
+
+export {
+  createViewRegistry,
+  type CanvasRendererProps,
+  type CanvasViewComponent,
+  type CanvasViewContext,
+  isValidSafeUrl,
+} from "./react";

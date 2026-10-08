@@ -18,11 +18,11 @@ In production AI applications (CRM copilots, financial analytics, sales assistan
 
 ```mermaid
 flowchart LR
-    Tool[🤖 createIsolatedTool] -->|clientDto| Envelope[✉️ createToolEnvelope]
-    Envelope --> Reducer[⚡ createCanvasReducer<br/>O(N) Set Deduplication]
-    Reducer --> State[📦 CanvasState]
-    State --> Registry[⚛️ createViewRegistry<br/>O(1) Dynamic Dispatch]
-    Registry --> AppViews[💻 Your Views<br/>shadcn/ui & Tailwind]
+    Tool[🤖 createIsolatedTool] -->|clientDto| Envelope["✉️ createToolEnvelope"]
+    Envelope --> Reducer["⚡ createCanvasReducer<br/>O(N) Set Deduplication"]
+    Reducer --> State["📦 CanvasState"]
+    State --> Registry["⚛️ createViewRegistry<br/>O(1) Dynamic Dispatch"]
+    Registry --> AppViews["💻 Your Views<br/>shadcn/ui & Tailwind"]
 ```
 
 ---
