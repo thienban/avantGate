@@ -138,6 +138,44 @@ export interface FeaturesConfig {
   finance?: FinanceFeaturesConfig;
 }
 
+export interface BeforeRequestContext {
+  messages: ChatMessage[];
+  model: string;
+  temperature?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface BeforeRequestResult {
+  messages?: ChatMessage[];
+  shortCircuit?: {
+    text: string;
+    tokens?: LLMUsage;
+    costUSD?: number;
+  };
+}
+
+export interface AfterResponseContext {
+  messages: ChatMessage[];
+  responseText: string;
+  modelUsed: string;
+  tokens: { prompt: number; completion: number; total: number };
+  costUSD: number;
+  attempts: number;
+  failoverOccurred: boolean;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AfterResponseResult {
+  responseText?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AvantGateMiddleware {
+  name: string;
+  beforeRequest?: (context: BeforeRequestContext) => Promise<BeforeRequestResult | void> | BeforeRequestResult | void;
+  afterResponse?: (context: AfterResponseContext) => Promise<AfterResponseResult | void> | AfterResponseResult | void;
+}
+
 export interface ControlLayerConfig {
   primary: ProviderConfig;
   fallback?: ProviderConfig;
@@ -154,6 +192,7 @@ export interface ControlLayerConfig {
   pricingCacheTtlMs?: number;
   customPricing?: Record<string, ModelPrice>;
   mockSimulation?: boolean;
+  middlewares?: AvantGateMiddleware[];
 }
 
 export interface ExecutionResult {

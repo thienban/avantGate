@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   ProviderConfig,
   LLMUsage,
+  BeforeRequestResult,
 } from "./types";
 import { ConfigurationError, BudgetExceededError } from "./types";
 import { validateUserInput } from "./input-guard";
@@ -16,6 +17,7 @@ import { calculateCostUSD, CachedPricingAdapter, resolveModelPriceAsync } from "
 import { validateWithZod } from "./response-validator";
 import { createHttpProviderClient } from "./providers/http-client";
 import { applyOutputGuards, sanitizeCustomTerms } from "./secret-guard";
+import { executeBeforeRequestHooks, executeAfterResponseHooks } from "./middleware";
 
 interface ProviderDispatchOutput {
   responseText: string;
@@ -324,39 +326,134 @@ export class AvantGateControlLayer {
     });
   };
 
-  execute = async (options: {
-    userQuery: string;
+  private prepareInputMessages = (options: {
+    userQuery?: string;
     systemPrompt?: string;
-    temperature?: number;
-    providerOverride?: LLMProviderPort;
-  }): Promise<ExecutionResult> => {
-    const sanitizedQuery = this.applySecurityGuards(options.userQuery);
-    const messages = this.buildMessages(options.systemPrompt, sanitizedQuery);
+    messages?: ChatMessage[];
+  }): ChatMessage[] => {
+    if (options.messages && options.messages.length > 0) {
+      return this.sanitizeIncomingMessages(options.messages);
+    }
+    if (options.userQuery !== undefined) {
+      const sanitizedQuery = this.applySecurityGuards(options.userQuery);
+      return this.buildMessages(options.systemPrompt, sanitizedQuery);
+    }
+    throw new ConfigurationError("[AvantGate Input Guard] Either 'userQuery' or 'messages' must be provided.");
+  };
 
-    const promptLength = (options.systemPrompt?.length ?? 0) + sanitizedQuery.length;
-    const estimatedPromptTokens = Math.ceil(promptLength / 4);
-    await this.checkPreflightBudget(estimatedPromptTokens, this.config.primary.model, this.config.primary.provider);
+  private handleShortCircuit = async (
+    shortCircuit: NonNullable<BeforeRequestResult["shortCircuit"]>,
+    targetModel: string
+  ): Promise<ExecutionResult> => {
+    const sanitizedText = this.applyOutputSecurityGuards(shortCircuit.text);
+    const result: ExecutionResult = {
+      text: sanitizedText,
+      tokens: {
+        prompt: shortCircuit.tokens?.promptTokens ?? 0,
+        completion: shortCircuit.tokens?.completionTokens ?? 0,
+        total: shortCircuit.tokens?.totalTokens ?? 0,
+      },
+      costUSD: shortCircuit.costUSD ?? 0,
+      modelUsed: `${targetModel}:shortcircuit`,
+      failoverOccurred: false,
+      attempts: 0,
+    };
+    await this.notifyAuditSink(result);
+    return result;
+  };
 
-    if (!options.providerOverride && this.getProviderChain().length === 0) {
+  private dispatchPromptExecution = async (
+    messages: ChatMessage[],
+    temperature?: number,
+    providerOverride?: LLMProviderPort
+  ): Promise<ProviderDispatchOutput> => {
+    const query = messages[messages.length - 1]?.content ?? "";
+    if (providerOverride) {
+      return this.executeOverrideProvider(providerOverride, messages, query, temperature);
+    }
+    if (this.getProviderChain().length === 0) {
       if (this.config.mockSimulation) {
-        const simResult = this.executeSimulation(sanitizedQuery, options.systemPrompt);
-        await this.notifyAuditSink(simResult);
-        return simResult;
+        const sim = this.executeSimulation(query);
+        return {
+          responseText: sim.text,
+          usage: { promptTokens: sim.tokens.prompt, completionTokens: sim.tokens.completion, totalTokens: sim.tokens.total },
+          modelUsed: sim.modelUsed,
+          failoverOccurred: false,
+          attempts: 1,
+        };
       }
       throw new ConfigurationError(
         "[AvantGate Configuration Error] No active LLM provider configured. Provide a client implementing LLMProviderPort or configure credentials (apiKey / baseUrl)."
       );
     }
+    return this.executeProviderPipeline(messages, query, temperature);
+  };
 
-    const output = options.providerOverride
-      ? await this.executeOverrideProvider(options.providerOverride, messages, sanitizedQuery, options.temperature)
-      : await this.executeProviderPipeline(messages, sanitizedQuery, options.temperature);
-
-    const result = this.assembleResult(output);
-    this.checkPostExecutionBudget(result.tokens.total, result.costUSD);
+  private finalizeExecutionResult = async (
+    output: ProviderDispatchOutput,
+    responseText: string
+  ): Promise<ExecutionResult> => {
+    const sanitizedText = this.applyOutputSecurityGuards(responseText);
+    const hitTokens = output.usage.promptCacheHitTokens ?? 0;
+    const costUSD = this.calculateCost(output.modelUsed, output.usage.promptTokens, output.usage.completionTokens, hitTokens);
+    this.checkPostExecutionBudget(output.usage.totalTokens, costUSD);
+    const tokens = { prompt: output.usage.promptTokens, completion: output.usage.completionTokens, total: output.usage.totalTokens };
+    const result: ExecutionResult = {
+      text: sanitizedText,
+      tokens,
+      costUSD,
+      modelUsed: output.modelUsed,
+      failoverOccurred: output.failoverOccurred,
+      attempts: output.attempts,
+    };
     await this.notifyAuditSink(result);
     return result;
   };
+
+  private runAfterHooks = async (
+    beforeState: { messages: ChatMessage[]; metadata?: Record<string, unknown> },
+    output: ProviderDispatchOutput
+  ) => {
+    const tokens = { prompt: output.usage.promptTokens, completion: output.usage.completionTokens, total: output.usage.totalTokens };
+    const costUSD = this.calculateCost(output.modelUsed, output.usage.promptTokens, output.usage.completionTokens);
+    return executeAfterResponseHooks(this.config.middlewares, {
+      messages: beforeState.messages,
+      responseText: output.responseText,
+      modelUsed: output.modelUsed,
+      tokens,
+      costUSD,
+      attempts: output.attempts,
+      failoverOccurred: output.failoverOccurred,
+      metadata: beforeState.metadata,
+    });
+  };
+
+  execute = async (options: {
+    userQuery?: string;
+    systemPrompt?: string;
+    messages?: ChatMessage[];
+    temperature?: number;
+    providerOverride?: LLMProviderPort;
+    metadata?: Record<string, unknown>;
+  }): Promise<ExecutionResult> => {
+    const inputMessages = this.prepareInputMessages(options);
+    const beforeState = await executeBeforeRequestHooks(this.config.middlewares, {
+      messages: inputMessages,
+      model: this.config.primary.model,
+      temperature: options.temperature,
+      metadata: options.metadata,
+    });
+    if (beforeState.shortCircuit) {
+      return this.handleShortCircuit(beforeState.shortCircuit, this.config.primary.model);
+    }
+    await this.verifyPromptBudget(beforeState.messages, this.config.primary.model);
+    const output = await this.dispatchPromptExecution(beforeState.messages, options.temperature, options.providerOverride);
+    const afterState = await this.runAfterHooks(beforeState, output);
+    return this.finalizeExecutionResult(output, afterState.responseText);
+  };
+
+  executePrompt = this.execute;
+
 
 
   executeStructured = async <T>(options: {
@@ -551,39 +648,74 @@ export class AvantGateControlLayer {
     await new Promise((resolve) => setTimeout(resolve, delay));
   };
 
-  generateStructuredOutput = async <T>(
-    options: GenerateStructuredOutputOptions<T>
+  private handleStructuredShortCircuit = async <T>(
+    shortCircuit: NonNullable<BeforeRequestResult["shortCircuit"]>,
+    options: GenerateStructuredOutputOptions<T>,
+    targetModel: string
   ): Promise<StructuredExecutionResult<T>> => {
-    const maxRetries = options.maxRetries ?? this.config.retryOptions?.maxRetries ?? 2;
-    const targetModel = options.model ?? this.config.primary.model;
-    const processedMessages = this.sanitizeIncomingMessages(options.messages);
+    const { parsedData, sanitizedResponse } = this.parseAndValidateStructuredResult(
+      shortCircuit.text,
+      options
+    );
+    const tokens = {
+      prompt: shortCircuit.tokens?.promptTokens ?? 0,
+      completion: shortCircuit.tokens?.completionTokens ?? 0,
+      total: shortCircuit.tokens?.totalTokens ?? 0,
+    };
+    const result: StructuredExecutionResult<T> = {
+      data: parsedData,
+      rawText: sanitizedResponse,
+      tokens,
+      costUSD: shortCircuit.costUSD ?? 0,
+      modelUsed: `${targetModel}:shortcircuit`,
+      failoverOccurred: false,
+    };
+    await this.notifyAuditSinkSafe(sanitizedResponse, result, 0);
+    return result;
+  };
 
-    await this.verifyPromptBudget(processedMessages, targetModel);
+  private runStructuredAfterHooks = async (
+    messages: ChatMessage[],
+    output: { responseText: string; modelUsed: string; promptTokens: number; completionTokens: number; failoverOccurred: boolean },
+    attempt: number
+  ) => {
+    const tokens = { prompt: output.promptTokens, completion: output.completionTokens, total: output.promptTokens + output.completionTokens };
+    const costUSD = this.calculateCost(output.modelUsed, output.promptTokens, output.completionTokens);
+    return executeAfterResponseHooks(this.config.middlewares, {
+      messages,
+      responseText: output.responseText,
+      modelUsed: output.modelUsed,
+      tokens,
+      costUSD,
+      attempts: attempt,
+      failoverOccurred: output.failoverOccurred,
+    });
+  };
 
+  private executeStructuredLoop = async <T>(
+    options: GenerateStructuredOutputOptions<T>,
+    messages: ChatMessage[],
+    targetModel: string,
+    maxRetries: number
+  ): Promise<StructuredExecutionResult<T>> => {
     let lastError: unknown;
-    let accumulatedPromptTokens = 0;
-    let accumulatedCompletionTokens = 0;
-
+    let accPrompt = 0;
+    let accComp = 0;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        const output = await this.dispatchProviderAttempt(options, processedMessages, targetModel);
-        accumulatedPromptTokens += output.promptTokens;
-        accumulatedCompletionTokens += output.completionTokens;
-
-        const { parsedData, sanitizedResponse } = this.parseAndValidateStructuredResult(
-          output.responseText,
-          options
-        );
-
+        const output = await this.dispatchProviderAttempt(options, messages, targetModel);
+        accPrompt += output.promptTokens;
+        accComp += output.completionTokens;
+        const afterState = await this.runStructuredAfterHooks(messages, output, attempt + 1);
+        const { parsedData, sanitizedResponse } = this.parseAndValidateStructuredResult(afterState.responseText, options);
         const result = this.buildStructuredResult({
           data: parsedData,
           rawText: sanitizedResponse,
-          promptTokens: accumulatedPromptTokens,
-          completionTokens: accumulatedCompletionTokens,
+          promptTokens: accPrompt,
+          completionTokens: accComp,
           modelUsed: output.modelUsed,
           failoverOccurred: output.failoverOccurred,
         });
-
         await this.notifyAuditSinkSafe(sanitizedResponse, result, attempt + 1);
         return result;
       } catch (err) {
@@ -591,8 +723,28 @@ export class AvantGateControlLayer {
         await this.waitRetryBackoff(attempt, maxRetries);
       }
     }
-
     throw lastError;
+  };
+
+  generateStructuredOutput = async <T>(
+    options: GenerateStructuredOutputOptions<T>
+  ): Promise<StructuredExecutionResult<T>> => {
+    const maxRetries = options.maxRetries ?? this.config.retryOptions?.maxRetries ?? 2;
+    const targetModel = options.model ?? this.config.primary.model;
+    const processedMessages = this.sanitizeIncomingMessages(options.messages);
+
+    const beforeState = await executeBeforeRequestHooks(this.config.middlewares, {
+      messages: processedMessages,
+      model: targetModel,
+      temperature: options.temperature,
+    });
+
+    if (beforeState.shortCircuit) {
+      return this.handleStructuredShortCircuit(beforeState.shortCircuit, options, targetModel);
+    }
+
+    await this.verifyPromptBudget(beforeState.messages, targetModel);
+    return this.executeStructuredLoop(options, beforeState.messages, targetModel, maxRetries);
   };
 }
 

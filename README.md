@@ -94,7 +94,7 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 | 📊 **Observability & Cockpit** | [GateWall Cockpit Console](docs/observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) • [GateWall vs. Temporal](docs/observability/temporal-and-gatewall.md) |
 | 💶 **Accounting** | [Financial Normalizer](docs/finance/normalizer.md) |
 | 🎨 **Presentation Plane** | [Headless UI Canvas & React Bindings](docs/ui/headless-canvas.md) |
-| 🚀 **Release Notes** | [v2.1.0 Release Notes](docs/release/release-2.1.0.md) • [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
+| 🚀 **Release Notes** | [v2.3.0 Release Notes](docs/release/release-2.3.0.md) • [v2.2.0 Release Notes](docs/release/release-2.2.0.md) • [v2.1.0 Release Notes](docs/release/release-2.1.0.md) • [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
 
 ---
 
@@ -126,6 +126,8 @@ pnpm add avantgate zod
 # or
 yarn add avantgate zod
 ```
+
+> 🚀 **Quickstart Guide:** See [**Getting Started with AvantGate**](docs/getting-started.md) for 3-minute quickstart recipes with launch-safe presets and compile-time anti-IDOR tools.
 
 ### 🧩 Subpath Exports
 

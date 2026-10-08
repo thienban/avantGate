@@ -18,28 +18,24 @@ pnpm add avantgate zod
 
 ## ⚡ 3-Minute Quickstart
 
-### 1. In-Process AI Firewall & Cost Control
-Execute an LLM query with automated prompt injection detection, PII redaction, and token budgeting:
+### 1. In-Process AI Firewall & Cost Control (One-Line Launch-Safe Presets)
+Execute an LLM query with zero-config hardened defaults: prompt injection defense, PII redaction, output DLP secret masking, token budgeting, and automatic retries:
 
 ```typescript
-import { createAvantGate } from "avantgate";
+import { createAvantGate, PRESETS } from "avantgate";
 
-const gate = createAvantGate({
-  primary: {
-    provider: "deepseek",
-    model: "deepseek-chat",
-    apiKey: process.env.DEEPSEEK_API_KEY!,
-  },
-  security: {
-    detectPromptInjection: true, // Blocks jailbreaks and prompt leaks
-    maskPII: true,                // Locally masks emails, phones, IBAN, French NIR/SPI
-  },
-  maxTokenBudget: 2000,          // Denial-of-Wallet defense
-});
+const gate = createAvantGate(
+  PRESETS.LAUNCH_SAFE({
+    primary: {
+      provider: "openai",
+      model: "gpt-4o",
+      apiKey: process.env.OPENAI_API_KEY!,
+    },
+  })
+);
 
 const response = await gate.execute({
-  systemPrompt: "You are an AI assistant.",
-  userQuery: "Hello, my email is alice@company.fr. What is EBITDA?",
+  userQuery: "Analyse ce contrat confidentiel. Contact: alice@company.fr",
 });
 
 console.log(response.text);

@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF), privacy control plane & headless UI canvas for TypeScript: real-time prompt guardrails, zero-egress PII redaction, deterministic tool envelopes, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
   "author": "Gatewall Team",
   "license": "MIT",
@@ -96,7 +96,9 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/finance/index.ts src/agent/index.ts src/workflow/index.ts src/client/index.ts src/ui/index.ts src/ui/react/index.ts --format cjs --format esm --clean && tsc --emitDeclarationOnly --outDir dist",
-    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/sqlite-pricing-adapter.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && tsx tests/output-dlp-secret-guard.test.ts && npm run test:agent && npm run test:workflow && npm run test:client && npm run test:ui",
+    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/sqlite-pricing-adapter.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && tsx tests/output-dlp-secret-guard.test.ts && tsx tests/middleware-lifecycle.test.ts && tsx tests/presets.test.ts && npm run test:agent && npm run test:workflow && npm run test:client && npm run test:ui",
+    "test:presets": "tsx tests/presets.test.ts",
+    "test:middleware": "tsx tests/middleware-lifecycle.test.ts",
     "test:ui": "tsx tests/ui/envelope.test.ts && tsx tests/ui/reducer.test.ts && tsx tests/ui/sanitize.test.ts && tsx tests/ui/react-registry.test.tsx",
     "test:secrets": "tsx tests/output-dlp-secret-guard.test.ts",
     "test:pricing": "tsx tests/sqlite-pricing-adapter.test.ts",

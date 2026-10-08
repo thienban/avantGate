@@ -59,24 +59,23 @@ This document tracks completed milestones and the upcoming architectural roadmap
   - **Hexagonal Storage Architecture (`StoragePort`)**: Clean separation of Domain services from database infrastructure with pluggable `SqliteStorageAdapter` (Node 22 zero-dep), `MemoryStorageAdapter` (zero-disk CI testing), and `PrismaStorageAdapter` (PostgreSQL / Supabase / AWS RDS enterprise ready).
   - *Full details: [v2.2.0 Release Notes](docs/release/release-2.2.0.md)*
 
+- ✅ **v2.3: Lifecycle Middleware Hooks & Hardened Launch-Safe Presets**
+  - **Extensible Interceptor Pipeline**: Pure TypeScript in-process middlewares (`AvantGateMiddleware`) chaining deterministic `beforeRequest` and `afterResponse` hooks.
+  - **Short-Circuit / Cache Sémantique**: Interception avant appel LLM (`shortCircuit`) bypassant le provider et le budget avec 0 token, 0 coût, tout en garantissant le passage dans les filtres DLP/secrets.
+  - **Injection RAG & Contexte Dynamique**: Modification en vol du tableau de messages (`messages`) avant vérification de budget et dispatch.
+  - **Post-Traitement & Watermarking**: Transformation contrôlée du texte de réponse avant audit et sortie sécurisée.
+  - **Zero-Config Launch-Safe Presets (`PRESETS.LAUNCH_SAFE`, `PRESETS.ENTERPRISE_STRICT`)**: One-line hardened instantiation for production AI firewalls with deep overrides support.
+
 ---
 
 ## 🔮 Upcoming Milestones
 
-### 1. 🔌 Lifecycle Middleware Hooks (`beforeRequest`, `afterResponse`)
-- Lightweight, extensible middleware hooks allowing custom inspection, context injection, or response transformation without forking core logic.
-- Native integration point for custom enterprise RAG pipelines, external tokenizers, and custom threat detectors.
-
-### 2. 🚀 Launch-Safe Presets (`PRESETS.LAUNCH_SAFE`)
-- Zero-config, hardened presets offering sensible defaults for production environments (strict prompt injection checks, PII redaction, token budgets, and multi-model failover).
-- One-line instantiation: `new AvantGateControlLayer(PRESETS.LAUNCH_SAFE)`.
-
-### 3. 🛡️ Pessimistic FinOps Reservations & Stream-First Timeouts ([FEAT-030])
+### 1. 🛡️ Pessimistic FinOps Reservations & Stream-First Timeouts
 - **Anti-Phantom Window**: In-process budget reservation lifecycle (`RESERVED`, `SETTLED`, `UNCONFIRMED_TIMEOUT`, `RELEASED`).
-- **Pessimistic Solvency on Retries**: Enforce cumulative worst-case solvency ($Spend + 2 \times Cost \le Budget$) on ambiguous timeouts against non-idempotent providers.
+- **Pessimistic Solvency on Retries**: Enforce cumulative worst-case solvency on ambiguous timeouts against non-idempotent providers.
 - **Transport Stream-First & TTFT Heartbeat**: Dynamic Time-to-First-Token (15s) and idle read timeouts (5s) in `HttpProviderClient` to eliminate premature socket drops on long generations.
 
-### 4. 🛑 Agent Tool Call Resilience & Outbox Intent Claim ([FEAT-031])
+### 3. 🛑 Agent Tool Call Resilience & Outbox Intent Claim
 - **Intent Claim Protocol**: Pre-execution atomic state locking (`STATUS: CLAIMED`) in `StepStorageAdapter` preventing blind multi-execution.
 - **Anti-Double Mutation Barrier**: Automatically intercepts ambiguous timeouts on `MUTATIVE` & `DESTRUCTIVE` tools to prevent autonomous agents from re-firing duplicate external mutations.
 - **Declarative Reconciliation & HITL**: Pluggable `onAmbiguousRetry` routines (read-before-write checks) and fallback to `StepSuspendedError` human approval.
