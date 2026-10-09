@@ -118,17 +118,12 @@ function matchesRoles(tool: RegisteredTool, context: ToolContext): boolean {
   if (!toolRoles || toolRoles.length === 0) {
     return true;
   }
-  const userRoles: string[] = [];
-  if (context.role) {
-    userRoles.push(context.role);
-  }
-  if (context.roles) {
-    userRoles.push(...context.roles);
-  }
-  if (userRoles.length === 0) {
+  if (!context.role && (!context.roles || context.roles.length === 0)) {
     return false;
   }
-  return toolRoles.some((roleName) => userRoles.includes(roleName));
+  const userRoleSet = new Set(context.roles ?? []);
+  if (context.role) userRoleSet.add(context.role);
+  return toolRoles.some((roleName) => userRoleSet.has(roleName));
 }
 
 /**

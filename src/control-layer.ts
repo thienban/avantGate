@@ -9,6 +9,7 @@ import type {
   ProviderConfig,
   LLMUsage,
   BeforeRequestResult,
+  BudgetReservation,
 } from "./types";
 import { ConfigurationError, BudgetExceededError } from "./types";
 import { validateUserInput } from "./input-guard";
@@ -18,6 +19,8 @@ import { validateWithZod } from "./response-validator";
 import { createHttpProviderClient } from "./providers/http-client";
 import { applyOutputGuards, sanitizeCustomTerms } from "./secret-guard";
 import { executeBeforeRequestHooks, executeAfterResponseHooks } from "./middleware";
+import { PromptInjectionError } from "./errors";
+
 
 interface ProviderDispatchOutput {
   responseText: string;
@@ -30,6 +33,8 @@ interface ProviderDispatchOutput {
 export class AvantGateControlLayer {
   private config: ControlLayerConfig;
   private cachedPricingAdapter?: CachedPricingAdapter;
+  private reservations = new Map<string, BudgetReservation>();
+  private cachedProviderChain: ProviderConfig[];
 
   constructor(config: ControlLayerConfig) {
     this.config = {
@@ -39,6 +44,12 @@ export class AvantGateControlLayer {
       emergencyFallback: this.resolveProviderConfig(config.emergencyFallback),
     };
 
+    this.cachedProviderChain = [
+      this.config.primary,
+      this.config.fallback,
+      this.config.emergencyFallback,
+    ].filter((provider): provider is ProviderConfig => Boolean(provider?.client));
+
     if (config.pricingAdapter) {
       this.cachedPricingAdapter = new CachedPricingAdapter(
         config.pricingAdapter,
@@ -46,6 +57,15 @@ export class AvantGateControlLayer {
       );
     }
   }
+
+  getReservation = (id: string): BudgetReservation | undefined => {
+    return this.reservations.get(id);
+  };
+
+  getAllReservations = (): BudgetReservation[] => {
+    return Array.from(this.reservations.values());
+  };
+
 
   private resolveProviderConfig = (provider?: ProviderConfig): ProviderConfig | undefined => {
     if (!provider) return undefined;
@@ -60,16 +80,15 @@ export class AvantGateControlLayer {
   };
 
   private findProviderConfig = (provider?: string, model?: string): ProviderConfig | undefined => {
-    const list = [this.config.primary, this.config.fallback, this.config.emergencyFallback].filter(
-      (p): p is ProviderConfig => Boolean(p)
-    );
     if (provider) {
-      const matchProvider = list.find((p) => p.provider === provider);
-      if (matchProvider) return matchProvider;
+      if (this.config.primary.provider === provider) return this.config.primary;
+      if (this.config.fallback?.provider === provider) return this.config.fallback;
+      if (this.config.emergencyFallback?.provider === provider) return this.config.emergencyFallback;
     }
     if (model) {
-      const matchModel = list.find((p) => p.model === model);
-      if (matchModel) return matchModel;
+      if (this.config.primary.model === model) return this.config.primary;
+      if (this.config.fallback?.model === model) return this.config.fallback;
+      if (this.config.emergencyFallback?.model === model) return this.config.emergencyFallback;
     }
     return this.config.primary;
   };
@@ -97,7 +116,7 @@ export class AvantGateControlLayer {
     });
 
     if (!guard.valid) {
-      throw new Error(`[AvantGate Security Guard] Request blocked: ${guard.blockedReason}`);
+      throw new PromptInjectionError(guard.blockedReason ?? "Prompt injection detected");
     }
 
     let processed = userQuery;
@@ -111,6 +130,26 @@ export class AvantGateControlLayer {
     }
 
     return processed;
+  };
+
+  private reScanMessagesAfterHooks = (
+    originalMessages: ChatMessage[],
+    updatedMessages: ChatMessage[]
+  ): ChatMessage[] => {
+    if (this.config.reScanIngressAfterHooks === false || originalMessages === updatedMessages) {
+      return updatedMessages;
+    }
+
+    return updatedMessages.map((msg, idx) => {
+      const orig = originalMessages[idx];
+      if (orig && (orig === msg || (orig.role === msg.role && orig.content === msg.content))) {
+        return msg;
+      }
+      return {
+        ...msg,
+        content: this.applySecurityGuards(msg.content),
+      };
+    });
   };
 
   private applyOutputSecurityGuards = (rawOutput: string): string => {
@@ -132,41 +171,113 @@ export class AvantGateControlLayer {
     return guardResult.text;
   };
 
-  private checkPreflightBudget = async (
-    estimatedPromptTokens: number,
+  private validateTokenBudget = (estimatedTokens: number): void => {
+    if (this.config.maxTokenBudget !== undefined && estimatedTokens > this.config.maxTokenBudget) {
+      throw new BudgetExceededError(
+        `[AvantGate Budget Guard] Pre-flight token budget exceeded: estimated prompt (${estimatedTokens} tokens) exceeds maxTokenBudget (${this.config.maxTokenBudget}).`
+      );
+    }
+  };
+
+  private validatePricingConfigured = async (
     targetModel: string,
     provider?: string
   ): Promise<void> => {
-    if (this.config.maxTokenBudget !== undefined && estimatedPromptTokens > this.config.maxTokenBudget) {
+    const isLocalFree = provider === "ollama" || targetModel.toLowerCase().includes("ollama");
+    if (isLocalFree) return;
+
+    const providerCfg = this.findProviderConfig(provider, targetModel);
+    const price = await resolveModelPriceAsync(targetModel, {
+      provider: provider ?? providerCfg?.provider,
+      providerPricing: providerCfg?.pricing,
+      customPricing: this.config.customPricing,
+      adapter: this.cachedPricingAdapter,
+    });
+
+    if (!price) {
+      throw new ConfigurationError(
+        `[AvantGate Configuration Error] 'maxCostUSD' was set to $${this.config.maxCostUSD}, but no pricing was configured for model '${targetModel}'. Please define pricing in ProviderConfig, customPricing, or via PricingAdapter.`
+      );
+    }
+  };
+
+  private evaluatePessimisticSolvency = (
+    estimatedPromptCost: number,
+    parentRunId?: string
+  ): void => {
+    if (!parentRunId || this.config.maxCostUSD === undefined) return;
+
+    let hasUnconfirmed = false;
+    let settledSpend = 0;
+
+    for (const r of this.reservations.values()) {
+      if (r.parentRunId !== parentRunId) continue;
+      if (r.status === "UNCONFIRMED_TIMEOUT") hasUnconfirmed = true;
+      if (r.status === "SETTLED") {
+        settledSpend += r.settledCostUsd ?? r.estimatedCostUsd;
+      }
+    }
+
+    if (!hasUnconfirmed) return;
+    const totalWorstCaseCost = settledSpend + 2 * estimatedPromptCost;
+
+    if (totalWorstCaseCost > this.config.maxCostUSD) {
       throw new BudgetExceededError(
-        `[AvantGate Budget Guard] Pre-flight token budget exceeded: estimated prompt (${estimatedPromptTokens} tokens) exceeds maxTokenBudget (${this.config.maxTokenBudget}).`
+        `[AvantGate FinOps Guard] Retry rejected: worst-case cumulative spend ($${totalWorstCaseCost.toFixed(4)}) exceeds max budget ($${this.config.maxCostUSD.toFixed(4)}).`
+      );
+    }
+  };
+
+  private createBudgetReservation = (
+    estimatedCostUsd: number,
+    parentRunId?: string
+  ): BudgetReservation => {
+    const reservationId = `res_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const reservation: BudgetReservation = {
+      id: reservationId,
+      parentRunId,
+      estimatedCostUsd,
+      status: "RESERVED",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    if (this.reservations.size >= 10000) {
+      const oldestKey = this.reservations.keys().next().value;
+      if (oldestKey) this.reservations.delete(oldestKey);
+    }
+
+    this.reservations.set(reservationId, reservation);
+    return reservation;
+  };
+
+  private checkPreflightBudget = async (
+    estimatedPromptTokens: number,
+    targetModel: string,
+    provider?: string,
+    parentRunId?: string
+  ): Promise<BudgetReservation | undefined> => {
+    this.validateTokenBudget(estimatedPromptTokens);
+
+    if (this.config.maxCostUSD === undefined) {
+      return undefined;
+    }
+
+    await this.validatePricingConfigured(targetModel, provider);
+    const estimatedPromptCost = this.calculateCost(targetModel, estimatedPromptTokens, 0, 0, provider);
+
+    this.evaluatePessimisticSolvency(estimatedPromptCost, parentRunId);
+
+    if (estimatedPromptCost > this.config.maxCostUSD) {
+      throw new BudgetExceededError(
+        `[AvantGate Budget Guard] Pre-flight cost budget exceeded: estimated prompt cost ($${estimatedPromptCost.toFixed(6)}) exceeds maxCostUSD ($${this.config.maxCostUSD}).`
       );
     }
 
-    if (this.config.maxCostUSD !== undefined) {
-      const isLocalFree = provider === "ollama" || targetModel.toLowerCase().includes("ollama");
-      const providerCfg = this.findProviderConfig(provider, targetModel);
-      const price = await resolveModelPriceAsync(targetModel, {
-        provider: provider ?? providerCfg?.provider,
-        providerPricing: providerCfg?.pricing,
-        customPricing: this.config.customPricing,
-        adapter: this.cachedPricingAdapter,
-      });
-
-      if (!isLocalFree && !price) {
-        throw new ConfigurationError(
-          `[AvantGate Configuration Error] 'maxCostUSD' was set to $${this.config.maxCostUSD}, but no pricing was configured for model '${targetModel}'. Please define pricing in ProviderConfig, customPricing, or via PricingAdapter.`
-        );
-      }
-
-      const estimatedPromptCost = this.calculateCost(targetModel, estimatedPromptTokens, 0, 0, provider);
-      if (estimatedPromptCost > this.config.maxCostUSD) {
-        throw new BudgetExceededError(
-          `[AvantGate Budget Guard] Pre-flight cost budget exceeded: estimated prompt cost ($${estimatedPromptCost.toFixed(6)}) exceeds maxCostUSD ($${this.config.maxCostUSD}).`
-        );
-      }
-    }
+    return this.createBudgetReservation(estimatedPromptCost, parentRunId);
   };
+
+
 
   private checkPostExecutionBudget = (tokensTotal: number, costUSD: number): void => {
     if (this.config.maxTokenBudget !== undefined && tokensTotal > this.config.maxTokenBudget) {
@@ -203,11 +314,7 @@ export class AvantGateControlLayer {
   };
 
   private getProviderChain = (): ProviderConfig[] => {
-    return [
-      this.config.primary,
-      this.config.fallback,
-      this.config.emergencyFallback,
-    ].filter((provider): provider is ProviderConfig => Boolean(provider?.client));
+    return this.cachedProviderChain;
   };
 
   private executeSimulation = (
@@ -416,16 +523,30 @@ export class AvantGateControlLayer {
   ) => {
     const tokens = { prompt: output.usage.promptTokens, completion: output.usage.completionTokens, total: output.usage.totalTokens };
     const costUSD = this.calculateCost(output.modelUsed, output.usage.promptTokens, output.usage.completionTokens);
-    return executeAfterResponseHooks(this.config.middlewares, {
-      messages: beforeState.messages,
-      responseText: output.responseText,
-      modelUsed: output.modelUsed,
-      tokens,
-      costUSD,
-      attempts: output.attempts,
-      failoverOccurred: output.failoverOccurred,
-      metadata: beforeState.metadata,
-    });
+    return executeAfterResponseHooks(
+      this.config.middlewares,
+      {
+        messages: beforeState.messages,
+        responseText: output.responseText,
+        modelUsed: output.modelUsed,
+        tokens,
+        costUSD,
+        attempts: output.attempts,
+        failoverOccurred: output.failoverOccurred,
+        metadata: beforeState.metadata,
+      },
+      this.config.middlewareTimeoutMs ?? 5000
+    );
+  };
+
+  private verifyPromptBudget = async (
+    messages: ChatMessage[],
+    model: string,
+    parentRunId?: string
+  ): Promise<BudgetReservation | undefined> => {
+    const promptLength = messages.reduce((sum, msg) => sum + msg.content.length, 0);
+    const estimatedPromptTokens = Math.ceil(promptLength / 4);
+    return this.checkPreflightBudget(estimatedPromptTokens, model, undefined, parentRunId);
   };
 
   execute = async (options: {
@@ -437,20 +558,53 @@ export class AvantGateControlLayer {
     metadata?: Record<string, unknown>;
   }): Promise<ExecutionResult> => {
     const inputMessages = this.prepareInputMessages(options);
-    const beforeState = await executeBeforeRequestHooks(this.config.middlewares, {
-      messages: inputMessages,
-      model: this.config.primary.model,
-      temperature: options.temperature,
-      metadata: options.metadata,
-    });
+    const beforeState = await executeBeforeRequestHooks(
+      this.config.middlewares,
+      {
+        messages: inputMessages,
+        model: this.config.primary.model,
+        temperature: options.temperature,
+        metadata: options.metadata,
+      },
+      this.config.middlewareTimeoutMs ?? 5000
+    );
     if (beforeState.shortCircuit) {
       return this.handleShortCircuit(beforeState.shortCircuit, this.config.primary.model);
     }
-    await this.verifyPromptBudget(beforeState.messages, this.config.primary.model);
-    const output = await this.dispatchPromptExecution(beforeState.messages, options.temperature, options.providerOverride);
+    beforeState.messages = this.reScanMessagesAfterHooks(inputMessages, beforeState.messages);
+    const parentRunId = (beforeState.metadata?.parentRunId ?? options.metadata?.parentRunId) as string | undefined;
+    const reservation = await this.verifyPromptBudget(beforeState.messages, this.config.primary.model, parentRunId);
+
+    let output: ProviderDispatchOutput;
+    try {
+      output = await this.dispatchPromptExecution(beforeState.messages, options.temperature, options.providerOverride);
+    } catch (err: unknown) {
+      if (reservation) {
+        const errorMsg = String(err);
+        const isClientError = errorMsg.includes("HTTP 400") || errorMsg.includes("HTTP 401") || errorMsg.includes("HTTP 403") || errorMsg.includes("HTTP 422");
+        if (isClientError) {
+          reservation.status = "RELEASED";
+          reservation.updatedAt = Date.now();
+        } else {
+          reservation.status = "UNCONFIRMED_TIMEOUT";
+          reservation.updatedAt = Date.now();
+        }
+      }
+      throw err;
+    }
+
     const afterState = await this.runAfterHooks(beforeState, output);
-    return this.finalizeExecutionResult(output, afterState.responseText);
+    const finalResult = await this.finalizeExecutionResult(output, afterState.responseText);
+
+    if (reservation) {
+      reservation.status = "SETTLED";
+      reservation.settledCostUsd = finalResult.costUSD;
+      reservation.updatedAt = Date.now();
+    }
+
+    return finalResult;
   };
+
 
   executePrompt = this.execute;
 
@@ -498,11 +652,6 @@ export class AvantGateControlLayer {
     });
   };
 
-  private verifyPromptBudget = async (messages: ChatMessage[], model: string): Promise<void> => {
-    const promptLength = messages.reduce((sum, msg) => sum + msg.content.length, 0);
-    const estimatedPromptTokens = Math.ceil(promptLength / 4);
-    await this.checkPreflightBudget(estimatedPromptTokens, model);
-  };
 
   private dispatchOverrideAttempt = async (
     override: LLMProviderPort,
@@ -681,15 +830,19 @@ export class AvantGateControlLayer {
   ) => {
     const tokens = { prompt: output.promptTokens, completion: output.completionTokens, total: output.promptTokens + output.completionTokens };
     const costUSD = this.calculateCost(output.modelUsed, output.promptTokens, output.completionTokens);
-    return executeAfterResponseHooks(this.config.middlewares, {
-      messages,
-      responseText: output.responseText,
-      modelUsed: output.modelUsed,
-      tokens,
-      costUSD,
-      attempts: attempt,
-      failoverOccurred: output.failoverOccurred,
-    });
+    return executeAfterResponseHooks(
+      this.config.middlewares,
+      {
+        messages,
+        responseText: output.responseText,
+        modelUsed: output.modelUsed,
+        tokens,
+        costUSD,
+        attempts: attempt,
+        failoverOccurred: output.failoverOccurred,
+      },
+      this.config.middlewareTimeoutMs ?? 5000
+    );
   };
 
   private executeStructuredLoop = async <T>(
@@ -733,18 +886,45 @@ export class AvantGateControlLayer {
     const targetModel = options.model ?? this.config.primary.model;
     const processedMessages = this.sanitizeIncomingMessages(options.messages);
 
-    const beforeState = await executeBeforeRequestHooks(this.config.middlewares, {
-      messages: processedMessages,
-      model: targetModel,
-      temperature: options.temperature,
-    });
+    const beforeState = await executeBeforeRequestHooks(
+      this.config.middlewares,
+      {
+        messages: processedMessages,
+        model: targetModel,
+        temperature: options.temperature,
+      },
+      this.config.middlewareTimeoutMs ?? 5000
+    );
 
     if (beforeState.shortCircuit) {
       return this.handleStructuredShortCircuit(beforeState.shortCircuit, options, targetModel);
     }
 
-    await this.verifyPromptBudget(beforeState.messages, targetModel);
-    return this.executeStructuredLoop(options, beforeState.messages, targetModel, maxRetries);
+    beforeState.messages = this.reScanMessagesAfterHooks(processedMessages, beforeState.messages);
+
+    const reservation = await this.verifyPromptBudget(beforeState.messages, targetModel);
+    try {
+      const result = await this.executeStructuredLoop(options, beforeState.messages, targetModel, maxRetries);
+      if (reservation) {
+        reservation.status = "SETTLED";
+        reservation.settledCostUsd = result.costUSD;
+        reservation.updatedAt = Date.now();
+      }
+      return result;
+    } catch (err: unknown) {
+      if (reservation) {
+        const errorMsg = String(err);
+        const isClientError = errorMsg.includes("HTTP 400") || errorMsg.includes("HTTP 401") || errorMsg.includes("HTTP 403") || errorMsg.includes("HTTP 422");
+        if (isClientError) {
+          reservation.status = "RELEASED";
+          reservation.updatedAt = Date.now();
+        } else {
+          reservation.status = "UNCONFIRMED_TIMEOUT";
+          reservation.updatedAt = Date.now();
+        }
+      }
+      throw err;
+    }
   };
 }
 

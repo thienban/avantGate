@@ -16,6 +16,8 @@ export const createLaunchSafeConfig = (options: PresetBaseOptions): ControlLayer
   return {
     maxTokenBudget: 8192,
     maxCostUSD: 0.5,
+    middlewareTimeoutMs: 5000,
+    reScanIngressAfterHooks: true,
     ...options,
     retryOptions: { ...defaultRetries, ...options.retryOptions },
     security: { ...defaultSecurity, ...options.security },
@@ -38,6 +40,8 @@ export const createEnterpriseStrictConfig = (options: PresetBaseOptions): Contro
   return {
     maxTokenBudget: 4096,
     maxCostUSD: 0.15,
+    middlewareTimeoutMs: 3000,
+    reScanIngressAfterHooks: true,
     ...options,
     retryOptions: { ...defaultRetries, ...options.retryOptions },
     security: { ...defaultSecurity, ...options.security },

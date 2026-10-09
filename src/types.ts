@@ -1,9 +1,15 @@
 import { z } from "zod";
 
-export interface ChatMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string;
-}
+export const ChatRoleSchema = z.enum(["system", "user", "assistant", "tool"]);
+export type ChatRole = z.infer<typeof ChatRoleSchema>;
+
+export const ChatMessageSchema = z.object({
+  role: ChatRoleSchema,
+  content: z.string().min(1, "Message content cannot be empty"),
+}).strict();
+
+export const ChatMessagesArraySchema = z.array(ChatMessageSchema);
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 export interface LLMUsage {
   promptTokens?: number;
@@ -59,6 +65,38 @@ export class BudgetExceededError extends Error {
   }
 }
 
+export class ProviderTTFTTimeoutError extends Error {
+  readonly ttftTimeoutMs: number;
+  constructor(message: string, ttftTimeoutMs: number) {
+    super(message);
+    this.name = "ProviderTTFTTimeoutError";
+    this.ttftTimeoutMs = ttftTimeoutMs;
+  }
+}
+
+export class ProviderIdleTimeoutError extends Error {
+  readonly idleTimeoutMs: number;
+  constructor(message: string, idleTimeoutMs: number) {
+    super(message);
+    this.name = "ProviderIdleTimeoutError";
+    this.idleTimeoutMs = idleTimeoutMs;
+  }
+}
+
+export type BudgetReservationStatus = "RESERVED" | "SETTLED" | "RELEASED" | "UNCONFIRMED_TIMEOUT";
+
+export interface BudgetReservation {
+  id: string;
+  tenantId?: string;
+  parentRunId?: string;
+  estimatedCostUsd: number;
+  settledCostUsd?: number;
+  status: BudgetReservationStatus;
+  createdAt: number;
+  updatedAt: number;
+}
+
+
 export class SecretLeakBlockedError extends Error {
   readonly detections?: Array<{ type: string; matchedCount: number }>;
 
@@ -80,6 +118,8 @@ export interface ProviderConfig {
   baseUrl?: string;
   client?: LLMProviderPort;
   pricing?: ModelPrice;
+  ttftTimeoutMs?: number;
+  idleTimeoutMs?: number;
 }
 
 export type TermCategory = "PROJECT" | "COMPANY" | "INFRA" | "CUSTOM";
@@ -139,10 +179,10 @@ export interface FeaturesConfig {
 }
 
 export interface BeforeRequestContext {
-  messages: ChatMessage[];
+  messages: readonly ChatMessage[];
   model: string;
   temperature?: number;
-  metadata?: Record<string, unknown>;
+  metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface BeforeRequestResult {
@@ -155,14 +195,14 @@ export interface BeforeRequestResult {
 }
 
 export interface AfterResponseContext {
-  messages: ChatMessage[];
+  messages: readonly ChatMessage[];
   responseText: string;
   modelUsed: string;
   tokens: { prompt: number; completion: number; total: number };
   costUSD: number;
   attempts: number;
   failoverOccurred: boolean;
-  metadata?: Record<string, unknown>;
+  metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface AfterResponseResult {
@@ -193,6 +233,8 @@ export interface ControlLayerConfig {
   customPricing?: Record<string, ModelPrice>;
   mockSimulation?: boolean;
   middlewares?: AvantGateMiddleware[];
+  middlewareTimeoutMs?: number;
+  reScanIngressAfterHooks?: boolean;
 }
 
 export interface ExecutionResult {

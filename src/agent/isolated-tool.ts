@@ -1,5 +1,6 @@
 import { DtoValidationError, ToolAccessDeniedError } from "./errors";
 import { auditToolResult } from "./guardrails";
+import { withToolResilience } from "./tool-resilience";
 import type {
   IsolatedToolConfig,
   TenantToolConfig,
@@ -15,11 +16,13 @@ const verifyRoles = (
   if (!configuredRoles || configuredRoles.length === 0) {
     return;
   }
-  const userRoles: string[] = [
-    ...(context.roles ?? []),
-    ...(context.role ? [context.role] : []),
-  ];
-  const hasAllowedRole = configuredRoles.some((role) => userRoles.includes(role));
+  if (!context.role && (!context.roles || context.roles.length === 0)) {
+    throw new ToolAccessDeniedError(toolIdentifier, "Access denied: insufficient role permissions");
+  }
+  const roleSet = new Set(context.roles ?? []);
+  if (context.role) roleSet.add(context.role);
+
+  const hasAllowedRole = configuredRoles.some((role) => roleSet.has(role));
   if (!hasAllowedRole) {
     throw new ToolAccessDeniedError(
       toolIdentifier,
@@ -202,6 +205,46 @@ const processLlmPayload = async <TArgs, TResult>(
   );
 };
 
+const buildResilientContext = <TArgs>(
+  config: IsolatedToolConfig<TArgs, any, any, any>,
+  args: TArgs,
+  context: ToolExecutionContext
+): { toolCallId: string; idempotencyKey: string; resilientContext: ToolExecutionContext } => {
+  const toolCallId = context.toolCallId || `call_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const genKey = config.resilience?.idempotencyKeyGenerator?.(args, context);
+  const idempotencyKey = context.idempotencyKey || genKey || toolCallId;
+  const resilientContext: ToolExecutionContext = { ...context, toolCallId, idempotencyKey };
+  return { toolCallId, idempotencyKey, resilientContext };
+};
+
+const executeWithResilienceGuard = async <TArgs, TResult>(
+  config: IsolatedToolConfig<TArgs, TResult, any, any>,
+  args: TArgs,
+  context: ToolExecutionContext,
+  toolIdentifier: string
+): Promise<TResult> => {
+  if (!config.resilience) {
+    return await config.execute(args, context);
+  }
+  const { toolCallId, idempotencyKey, resilientContext } = buildResilientContext(config, args, context);
+  const outcome = await withToolResilience<TArgs, TResult>({
+    toolCallId,
+    toolName: toolIdentifier,
+    storage: context.storage,
+    impact: config.impact ?? "READ_ONLY",
+    idempotencyKey,
+    timeoutMs: config.resilience.timeoutMs,
+    suspendOnAmbiguous: config.resilience.suspendOnAmbiguous,
+    workflowId: context.workflowId,
+    args,
+    action: async (signal, idKey) => {
+      return await config.execute(args, { ...resilientContext, abortSignal: signal, idempotencyKey: idKey });
+    },
+    onAmbiguousRetry: config.resilience.onAmbiguousRetry,
+  });
+  return outcome.result;
+};
+
 /**
  * Creates an isolated tool compatible with Vercel AI SDK (ai) tool contract.
  * Features dual-channel separation (client data vs minimal LLM DTO),
@@ -238,6 +281,7 @@ export const createIsolatedTool = <
     _roles: config.roles ? Object.freeze([...config.roles]) : undefined,
     _impact: toolImpact,
     _requireApproval: requireApproval,
+    _resilience: config.resilience,
     _lastPiiFilteredCount: 0,
     _lastInvalidationTags: undefined,
     execute: async (args: TArgs, context?: ToolExecutionContext): Promise<any> => {
@@ -255,7 +299,12 @@ export const createIsolatedTool = <
         toolIdentifier
       );
 
-      const rawResult = await config.execute(args, updatedContext);
+      const rawResult = await executeWithResilienceGuard(
+        config,
+        args,
+        updatedContext,
+        toolIdentifier
+      );
 
       verifyTenantIsolation(config.assertTenant, rawResult, updatedContext, toolIdentifier);
 

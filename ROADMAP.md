@@ -66,19 +66,31 @@ This document tracks completed milestones and the upcoming architectural roadmap
   - **Post-Traitement & Watermarking**: Transformation contrôlée du texte de réponse avant audit et sortie sécurisée.
   - **Zero-Config Launch-Safe Presets (`PRESETS.LAUNCH_SAFE`, `PRESETS.ENTERPRISE_STRICT`)**: One-line hardened instantiation for production AI firewalls with deep overrides support.
 
+- ✅ **v2.4: Pessimistic FinOps, Agent Tool Call Resilience & Middleware Security Hardening**
+  - **Pessimistic FinOps Reservations (FEAT-030)**: In-process budget reservation lifecycle (`RESERVED`, `SETTLED`, `UNCONFIRMED_TIMEOUT`, `RELEASED`) with cumulative solvency enforcement on ambiguous retries.
+  - **Transport Stream-First & TTFT Heartbeat (FEAT-030)**: Dynamic Time-to-First-Token (15s) and idle read timeouts (5s) in `HttpProviderClient` preventing premature socket drops on long generations.
+  - **Intent Claim Protocol (FEAT-031)**: Pre-execution atomic state locking (`STATUS: CLAIMED`) in `StepStorageAdapter` preventing blind multi-execution in-process.
+  - **Anti-Double Mutation Barrier (FEAT-031)**: Automatically intercepts ambiguous timeouts on `MUTATIVE` & `DESTRUCTIVE` tools to prevent autonomous agents from re-firing duplicate external mutations.
+  - **Declarative Reconciliation & HITL (FEAT-031)**: Pluggable `onAmbiguousRetry` routines (read-before-write checks) and `StepSuspendedError` / `AmbiguousToolExecutionError` handling.
+  - **Canonical Deep Freeze Immutability (FEAT-036)**: Zero-dependency recursive `deepFreeze` helper with native `WeakSet` circular reference guard and bounded `maxDepth: 10` in `src/utils/immutability.ts`.
+  - **Strict Runtime Schema Enforcement (FEAT-036)**: Elimination of compile-time-only blindspots via `ChatMessageSchema.strict()` and `InvalidMessageSchemaError` blocking prototype pollution and illegal roles.
+  - **RAG Anti-IPI Re-Scan (FEAT-036)**: Zero-overhead post-hook inspection of added or modified messages (`reScanIngressAfterHooks`) blocking Indirect Prompt Injections with `PromptInjectionError`.
+  - **Bounded Middleware Timeouts (FEAT-036)**: Unitary timeout guard (`middlewareTimeoutMs`) and `MiddlewareTimeoutError` via `Promise.race` preventing pipeline DoS from hung middleware calls.
+  - *Full details: [v2.4.0 Release Notes](docs/release/release-2.4.0.md)*
+
 ---
 
 ## 🔮 Upcoming Milestones
 
-### 1. 🛡️ Pessimistic FinOps Reservations & Stream-First Timeouts
-- **Anti-Phantom Window**: In-process budget reservation lifecycle (`RESERVED`, `SETTLED`, `UNCONFIRMED_TIMEOUT`, `RELEASED`).
-- **Pessimistic Solvency on Retries**: Enforce cumulative worst-case solvency on ambiguous timeouts against non-idempotent providers.
-- **Transport Stream-First & TTFT Heartbeat**: Dynamic Time-to-First-Token (15s) and idle read timeouts (5s) in `HttpProviderClient` to eliminate premature socket drops on long generations.
+### 1. 🌐 AvantGate Secure Gateway & Smart Router (v2.5 SaaS MVP "Secure OpenRouter")
+- **Universal `/v1/chat/completions` Drop-in Endpoint**: 100% OpenAI SDK, Vercel AI SDK and curl compatible HTTP proxy supporting native Server-Sent Events (`text/event-stream`) and standard JSON responses.
+- **Master Multi-Provider Dispatch & Auto-Fallback**: Zero-latency switching across OpenAI, Anthropic, and Mistral AI (EU sovereign) with automatic failover (< 500 ms) upon upstream 5xx or provider timeouts.
+- **In-Flight Privacy & Injection Shield**: Dual-pass PII masking and unmasking in-flight (IBAN, NIR, emails, phone), bidirectional Secret DLP, and Prompt Injection neutralization with zero egress of sensitive raw data.
+- **Single Client Key Auth & BYOK Master Vault**: Client-facing unique API key authentication (`ag_live_...`) with timing-safe SHA-256 hashing and AES-256-GCM encrypted provider credentials storage.
+- **GateWall SaaS Console (Next.js App Router & shadcn/ui)**: Developer dashboard for instant API key issuance, live SSE request logs, PII redaction audit trails, and token FinOps monitoring.
 
-### 3. 🛑 Agent Tool Call Resilience & Outbox Intent Claim
-- **Intent Claim Protocol**: Pre-execution atomic state locking (`STATUS: CLAIMED`) in `StepStorageAdapter` preventing blind multi-execution.
-- **Anti-Double Mutation Barrier**: Automatically intercepts ambiguous timeouts on `MUTATIVE` & `DESTRUCTIVE` tools to prevent autonomous agents from re-firing duplicate external mutations.
-- **Declarative Reconciliation & HITL**: Pluggable `onAmbiguousRetry` routines (read-before-write checks) and fallback to `StepSuspendedError` human approval.
-
-
-
+### 2. 💎 Enterprise Distributed FinOps & Gateway Orchestrated Resilience (v2.6 Enterprise SaaS)
+- **Distributed Hold Manager**: Multi-worker & multi-container pessimistic quota locking with Redis / PostgreSQL distributed transactions.
+- **Dynamic FinOps Router (`avantgate/auto`)**: Automated prompt complexity classifier routing basic prompts to cost-efficient models (`gpt-4o-mini`, `mistral-small`).
+- **Cluster-Wide Idempotency Outbox**: Distributed claims preventing concurrent container execution across external services (Stripe, HubSpot, ERP).
+- **Web HITL Cockpit & Multi-Channel Escalation**: Visual suspended actions board on GateWall dashboard with one-click manager approval/rejection, real-time TTL auto-expiration, and Slack / Webhook notifications.

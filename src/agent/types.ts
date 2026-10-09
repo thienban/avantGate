@@ -138,6 +138,7 @@ export interface ToolExecutionContext {
   role?: string;
   roles?: string[];
   toolCallId?: string;
+  idempotencyKey?: string;
   messages?: unknown[];
   abortSignal?: AbortSignal;
   workflowId?: string;
@@ -151,6 +152,70 @@ export interface ToolExecutionContext {
   costUsd?: number;
   onInvalidationTags?: (tags: string[]) => void | Promise<void>;
   [key: string]: unknown;
+}
+
+/**
+ * Execution lifecycle status for resilient agent tools.
+ */
+export type ToolExecutionStatus =
+  | "CLAIMED"
+  | "COMPLETED"
+  | "FAILED"
+  | "UNCONFIRMED_TIMEOUT";
+
+/**
+ * Stored resilience record tracking intent locks and ambiguous execution states.
+ */
+export interface ToolResilienceRecord<TResult = unknown> {
+  toolCallId: string;
+  status: ToolExecutionStatus;
+  result?: TResult;
+  error?: string;
+  impact?: ToolImpact;
+  startedAt: number;
+  updatedAt: number;
+}
+
+/**
+ * Result returned by withToolResilience helper.
+ */
+export interface ToolResilienceResult<TResult> {
+  result: TResult;
+  isCached: boolean;
+  status: ToolExecutionStatus;
+}
+
+/**
+ * Declarative resilience configuration for isolated and tenant tools.
+ */
+export interface ToolResilienceConfig<TArgs = any, TResult = any> {
+  timeoutMs?: number;
+  suspendOnAmbiguous?: boolean;
+  idempotencyKeyGenerator?: (args: TArgs, context?: ToolExecutionContext) => string;
+  onAmbiguousRetry?: (ctx: { toolCallId: string; args: TArgs }) => Promise<{
+    reconciled: boolean;
+    result?: TResult;
+  }>;
+}
+
+/**
+ * Options for the withToolResilience execution helper.
+ */
+export interface ToolResilienceOptions<TArgs = any, TResult = any> {
+  toolCallId: string;
+  storage?: StepStorageAdapter;
+  impact?: ToolImpact;
+  idempotencyKey?: string;
+  timeoutMs?: number;
+  suspendOnAmbiguous?: boolean;
+  toolName?: string;
+  workflowId?: string;
+  args?: TArgs;
+  action: (signal: AbortSignal, idempotencyKey: string) => Promise<TResult>;
+  onAmbiguousRetry?: (ctx: { toolCallId: string; args: TArgs }) => Promise<{
+    reconciled: boolean;
+    result?: TResult;
+  }>;
 }
 
 /**
@@ -222,6 +287,7 @@ export interface IsolatedToolConfig<
   roles?: string[];
   impact?: ToolImpact;
   requireApproval?: boolean;
+  resilience?: ToolResilienceConfig<TArgs, TResult>;
   dataAccessGuard?: DataAccessGuard<TArgs>;
   assertTenant?: (result: TResult) => string | undefined | null;
   assertOwnership?: (
@@ -284,6 +350,7 @@ export interface VercelAiCoreTool<TArgs = any, TResult = any> {
   readonly _roles?: readonly string[];
   readonly _impact?: ToolImpact;
   readonly _requireApproval?: boolean;
+  readonly _resilience?: ToolResilienceConfig;
   _lastPiiFilteredCount?: number;
   _lastInvalidationTags?: string[];
 }
@@ -309,6 +376,7 @@ export interface RegisteredTool<TArgs = any, TResult = any> {
   requiredRoles?: string[];
   tags?: string[];
   requireApproval?: boolean;
+  resilience?: ToolResilienceConfig;
   tool: VercelAiCoreTool<TArgs, TResult>;
 }
 
@@ -327,6 +395,7 @@ export interface ToolDescriptor {
   requireApproval?: boolean;
   cacheTTL?: number;
   tags?: string[];
+  resilience?: ToolResilienceConfig;
 }
 
 /**

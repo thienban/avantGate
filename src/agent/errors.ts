@@ -118,3 +118,32 @@ export class DtoValidationError extends Error {
   }
 }
 
+export interface AmbiguousToolExecutionDetails {
+  toolCallId: string;
+  toolName?: string;
+  impact?: string;
+  message?: string;
+  originalError?: unknown;
+}
+
+export class AmbiguousToolExecutionError extends Error {
+  public readonly toolCallId: string;
+  public readonly toolName?: string;
+  public readonly impact?: string;
+  public readonly originalError?: unknown;
+
+  constructor(details: AmbiguousToolExecutionDetails | string, toolName?: string, impact?: string) {
+    const isStr = typeof details === "string";
+    const callId = isStr ? details : details.toolCallId;
+    const name = isStr ? toolName : details.toolName;
+    const imp = isStr ? (impact ?? "MUTATIVE") : (details.impact ?? "MUTATIVE");
+    const msg = isStr ? "" : (details.message ? `: ${details.message}` : "");
+    super(`Ambiguous tool execution detected for [${name || "tool"}::${callId}] (${imp})${msg}. Re-execution blocked without reconciliation.`);
+    this.name = "AmbiguousToolExecutionError";
+    this.toolCallId = callId;
+    this.toolName = name;
+    this.impact = imp;
+    this.originalError = isStr ? undefined : details.originalError;
+  }
+}
+

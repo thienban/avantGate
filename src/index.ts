@@ -12,3 +12,5 @@ export * from "./secret-guard";
 export * from "./custom-terms";
 export * from "./middleware";
 export * from "./presets";
+export * from "./errors";
+export * from "./utils/immutability";

@@ -83,16 +83,27 @@ function toDescriptor(tool: RegisteredTool): ToolDescriptor {
 export class ToolRegistry {
   private readonly toolsById = new Map<string, RegisteredTool>();
   private readonly toolsByPublicName = new Map<string, RegisteredTool>();
+  private readonly toolsByDomain = new Map<string, RegisteredTool[]>();
+  private readonly toolsByImpact = new Map<ToolImpact, RegisteredTool[]>();
 
-  /**
-   * Registers a new tool in the registry.
-   */
   public register(toolDef: RegisteredTool | VercelAiCoreTool): this {
     const normalizedDef = normalizeToolDefinition(toolDef);
     const publicName = normalizedDef.alias || normalizedDef.name;
 
     this.toolsById.set(normalizedDef.id, normalizedDef);
     this.toolsByPublicName.set(publicName, normalizedDef);
+
+    if (normalizedDef.domain) {
+      const domainList = this.toolsByDomain.get(normalizedDef.domain) ?? [];
+      domainList.push(normalizedDef);
+      this.toolsByDomain.set(normalizedDef.domain, domainList);
+    }
+
+    const impact = normalizedDef.impact ?? "READ_ONLY";
+    const impactList = this.toolsByImpact.get(impact) ?? [];
+    impactList.push(normalizedDef);
+    this.toolsByImpact.set(impact, impactList);
+
     return this;
   }
 
@@ -145,55 +156,51 @@ export class ToolRegistry {
    * Filters tools belonging to a specific business domain.
    */
   public getByDomain(domain: string): RegisteredTool[] {
-    return this.getAll().filter((item) => item.domain === domain);
+    const tools = this.toolsByDomain.get(domain);
+    return tools ? [...tools] : [];
   }
 
-  /**
-   * Filters tools matching a specific workflow phase.
-   */
   public getByPhase(phase: string): RegisteredTool[] {
-    return this.getAll().filter((item) => {
-      if (!item.phases || item.phases.length === 0) {
-        return true;
+    const result: RegisteredTool[] = [];
+    for (const item of this.toolsById.values()) {
+      if (!item.phases || item.phases.length === 0 || item.phases.includes(phase)) {
+        result.push(item);
       }
-      return item.phases.includes(phase);
-    });
+    }
+    return result;
   }
 
-  /**
-   * Filters tools matching the user's roles (RBAC).
-   */
   public filterByRoles(userRoles: string[]): RegisteredTool[] {
     const roleSet = new Set(userRoles);
-    return this.getAll().filter((item) => {
+    const result: RegisteredTool[] = [];
+    for (const item of this.toolsById.values()) {
       const roles = item.roles ?? item.requiredRoles;
-      if (!roles || roles.length === 0) {
-        return true;
+      if (!roles || roles.length === 0 || roles.some((role) => roleSet.has(role))) {
+        result.push(item);
       }
-      return roles.some((role) => roleSet.has(role));
-    });
+    }
+    return result;
   }
 
-  /**
-   * Filters tools matching a specific physical impact profile (READ_ONLY, MUTATIVE, DESTRUCTIVE).
-   */
   public getByImpact(impact: ToolImpact): RegisteredTool[] {
-    return this.getAll().filter((item) => (item.impact ?? "READ_ONLY") === impact);
+    const tools = this.toolsByImpact.get(impact);
+    return tools ? [...tools] : [];
   }
 
-  /**
-   * Exports headless technical descriptors without UI rendering coupling.
-   */
   public getDescriptors(filter?: ToolDescriptorFilter): ToolDescriptor[] {
-    let list = this.getAll();
+    let list: RegisteredTool[];
     if (filter?.domain) {
-      list = list.filter((item) => item.domain === filter.domain);
+      list = this.getByDomain(filter.domain);
+    } else if (filter?.impact) {
+      list = this.getByImpact(filter.impact);
+    } else {
+      list = this.getAll();
+    }
+    if (filter?.domain && filter?.impact) {
+      list = list.filter((item) => (item.impact ?? "READ_ONLY") === filter.impact);
     }
     if (filter?.role) {
       list = list.filter((item) => matchesRoleFilter(item, filter.role));
-    }
-    if (filter?.impact) {
-      list = list.filter((item) => (item.impact ?? "READ_ONLY") === filter.impact);
     }
     return list.map(toDescriptor);
   }
