@@ -78,6 +78,15 @@ This document tracks completed milestones and the upcoming architectural roadmap
   - **Bounded Middleware Timeouts (FEAT-036)**: Unitary timeout guard (`middlewareTimeoutMs`) and `MiddlewareTimeoutError` via `Promise.race` preventing pipeline DoS from hung middleware calls.
   - *Full details: [v2.4.0 Release Notes](docs/release/release-2.4.0.md)*
 
+- ✅ **v2.5: In-Flight Bidirectional DLP & Arithmetic Modulo 97 Engine**
+  - **In-Flight Bidirectional DLP (`InFlightRedactionSession` / `BidirectionalSanitizer`)**: Reversible, ephemeral redaction for ingress prompts and egress JSON responses with signed, collision-proof tokens (`⟪AG:TYPE:INDEX:SALT⟫`).
+  - **Ephemeral Cryptographic Salt**: Zero-collision guarantee per session via `crypto.getRandomValues` preventing token injection.
+  - **Entity Referent Reuse**: Deterministic identity preservation across turns for identical PII entities.
+  - **Streaming SSE Sliding Buffer**: W3C `TransformStream<string, string>` reconstituting fragmented tokens across chunk boundaries on-the-fly without stalling stream latency.
+  - **Arithmetic $O(1)$ ISO 7064 & NIR Checksums**: Native `BigInt` Modulo 97-10 verification for IBAN and official INSEE validation for French NIR Social Security numbers (Corsica 2A/2B support).
+  - **Zero-Retention Memory Purge**: Immediate RAM clearance via `session.dispose()` and TypeScript 5.2+ `[Symbol.dispose]()` (`using session = ...`).
+  - *Full details: [v2.5.0 Release Notes](docs/release/release-2.5.0.md)*
+
 ---
 
 ## 🔮 Upcoming Milestones

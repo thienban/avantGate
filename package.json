@@ -1,6 +1,6 @@
 {
   "name": "avantgate",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "description": "Zero-infrastructure, in-process AI Application Firewall (AI-WAF), privacy control plane & headless UI canvas for TypeScript: real-time prompt guardrails, zero-egress PII redaction, deterministic tool envelopes, anti-IDOR defense, pre-flight token budgets, and multi-model failover.",
   "author": "Gatewall Team",
   "license": "MIT",
@@ -96,7 +96,8 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts src/finance/index.ts src/agent/index.ts src/workflow/index.ts src/client/index.ts src/ui/index.ts src/ui/react/index.ts --format cjs --format esm --clean && tsc --emitDeclarationOnly --outDir dist",
-    "test": "tsx tests/avantgate.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/sqlite-pricing-adapter.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && tsx tests/output-dlp-secret-guard.test.ts && tsx tests/utils/immutability.test.ts && tsx tests/middleware-lifecycle.test.ts && tsx tests/presets.test.ts && tsx tests/finops/pessimistic-budget.test.ts && tsx tests/providers/stream-timeout.test.ts && npm run test:agent && npm run test:workflow && npm run test:client && npm run test:ui",
+    "test": "tsx tests/avantgate.test.ts && tsx tests/in-flight-redactor.test.ts && tsx tests/preflight-budget.test.ts && tsx tests/sqlite-pricing-adapter.test.ts && tsx tests/financial-normalizer.test.ts && tsx tests/prompt-builder.test.ts && tsx tests/pii-extended.test.ts && tsx tests/output-dlp-secret-guard.test.ts && tsx tests/utils/immutability.test.ts && tsx tests/middleware-lifecycle.test.ts && tsx tests/presets.test.ts && tsx tests/finops/pessimistic-budget.test.ts && tsx tests/providers/stream-timeout.test.ts && npm run test:agent && npm run test:workflow && npm run test:client && npm run test:ui",
+    "test:redactor": "tsx tests/in-flight-redactor.test.ts",
     "test:finops": "tsx tests/finops/pessimistic-budget.test.ts && tsx tests/providers/stream-timeout.test.ts",
     "test:presets": "tsx tests/presets.test.ts",
     "test:middleware": "tsx tests/utils/immutability.test.ts && tsx tests/middleware-lifecycle.test.ts",

@@ -14,3 +14,4 @@ export * from "./middleware";
 export * from "./presets";
 export * from "./errors";
 export * from "./utils/immutability";
+export * from "./redactor";
