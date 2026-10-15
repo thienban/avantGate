@@ -87,11 +87,22 @@ This document tracks completed milestones and the upcoming architectural roadmap
   - **Zero-Retention Memory Purge**: Immediate RAM clearance via `session.dispose()` and TypeScript 5.2+ `[Symbol.dispose]()` (`using session = ...`).
   - *Full details: [v2.5.0 Release Notes](docs/release/release-2.5.0.md)*
 
+- ✅ **v2.6: DLP Extension — PCI-DSS Luhn Credit Cards, IPv4 & CIDR, International Phones & US SSN**
+  - **PCI-DSS Credit Card Redaction**: Automatic interception of Visa, Mastercard, Amex, Discover, and Carte Bleue into `⟪AG:CARD:n:salt⟫`.
+  - **Arithmetic $O(n)$ Luhn Algorithm (`validateLuhnChecksum`)**: Eliminates false positives by validating candidate 13-19 digit sequences.
+  - **Network IPv4 & CIDR Protection**: Masks private (RFC 1918) and public IPs (`⟪AG:IP:n:salt⟫`) with anti-software-versioning lookarounds (`v2.4.1.0` preserved).
+  - **International Phones (Standard E.164)**: Broadened country prefix matching (+1, +44, +49) with 100% backward compatibility for French territorial numbers (`⟪AG:PHONE:n:salt⟫`).
+  - **US Social Security Numbers (SSN)**: SSA-compliant 9-digit format detection (`⟪AG:SSN:n:salt⟫`) with exclusion of reserved prefixes (`000`, `666`, `9xx`).
+  - *Full details: [v2.6.0 Release Notes](docs/release/release-2.6.0.md)*
+
 ---
 
 ## 🔮 Upcoming Milestones
 
-### 1. 🌐 AvantGate Secure Gateway & Smart Router (v2.5 SaaS MVP "Secure OpenRouter")
+> 🌐 **Official SaaS Platform**: [https://gatewall.eu/](https://gatewall.eu/)
+
+### 1. 🌐 GateWall Secure Gateway & Smart Router (SaaS MVP "Secure OpenRouter" — [gatewall.eu](https://gatewall.eu/))
+- **Live Cloud SaaS**: Hosted and sovereign EU Gateway available at [https://gatewall.eu/](https://gatewall.eu/).
 - **Universal `/v1/chat/completions` Drop-in Endpoint**: 100% OpenAI SDK, Vercel AI SDK and curl compatible HTTP proxy supporting native Server-Sent Events (`text/event-stream`) and standard JSON responses.
 - **Master Multi-Provider Dispatch & Auto-Fallback**: Zero-latency switching across OpenAI, Anthropic, and Mistral AI (EU sovereign) with automatic failover (< 500 ms) upon upstream 5xx or provider timeouts.
 - **In-Flight Privacy & Injection Shield**: Dual-pass PII masking and unmasking in-flight (IBAN, NIR, emails, phone), bidirectional Secret DLP, and Prompt Injection neutralization with zero egress of sensitive raw data.

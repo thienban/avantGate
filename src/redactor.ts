@@ -1,7 +1,10 @@
 import type { CustomRedactionTermDef } from "./types";
 
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,7}\b/g;
-const PHONE_FR_REGEX = /\b(?:(?:\+|00)33|0)\s*[1-9](?:[\s.-]*\d{2}){4}\b/g;
+const PHONE_INTL_REGEX = /(?:\b0[1-9](?:[\s.-]*\d{2}){4}\b|(?:\+|00)[1-9]\d{0,2}(?:[\s.-]*(?:\(\d{1,4}\)|\d{1,4})){2,5}\b)/g;
+const CARD_REGEX = /\b(?:\d{4}[\s-]\d{4}[\s-]\d{4}[\s-]\d{1,7}|\d{4}[\s-]\d{6}[\s-]\d{5}|\d{13,19})\b/g;
+const IP_REGEX = /(?<![\w./])(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])(?:\/(?:3[0-2]|[12]?[0-9]))?(?!\.[a-zA-Z0-9])(?![a-zA-Z0-9_])/g;
+const SSN_US_REGEX = /\b(?!000|666|9\d{2})\d{3}-(?!00)\d{2}-(?!0000)\d{4}\b/g;
 const NIR_SSN_REGEX = /\b[12]\s*\d{2}\s*(?:0[1-9]|1[0-2]|[2-9]\d)\s*(?:0[1-9]|[1-8]\d|9[0-8]|2[ABab])\s*(?!000)\d{3}\s*(?!000)\d{3}(?:\s*\d{2})?\b/g;
 const SPI_LABELLED_REGEX = /(?:(?:num[ée]ro\s+fiscal|spi|n[°o]\s*fiscal|d[ée]clarant(?: fiscal)?)\s*[:=]?\s*)\b(\d{2}(?:[\s.-]?\d{2}){5}[\s.-]?\d|\d{13})\b/gi;
 const SPI_FORMATTED_REGEX = /\b[0-3]\d(?:\s+\d{2}){5}\s+\d\b/g;
@@ -64,6 +67,24 @@ export const validateNirChecksum = (rawNir: string): boolean => {
 
   const expectedKey = Number(97n - (BigInt(base) % 97n));
   return key === expectedKey;
+};
+
+export const validateLuhnChecksum = (cardNumber: string): boolean => {
+  const digits = cardNumber.replace(/[\s-]/g, "");
+  if (!/^\d{13,19}$/.test(digits)) return false;
+
+  let sum = 0;
+  let isEven = false;
+  for (let i = digits.length - 1; i >= 0; i--) {
+    let digit = parseInt(digits.charAt(i), 10);
+    if (isEven) {
+      digit *= 2;
+      if (digit > 9) digit -= 9;
+    }
+    sum += digit;
+    isEven = !isEven;
+  }
+  return sum % 10 === 0;
 };
 
 const generateEphemeralSalt = (): string => {
@@ -215,11 +236,14 @@ export class InFlightRedactionSession {
     let processed = text;
     processed = this.maskCustomTerms(processed);
     processed = this.maskEmails(processed);
-    processed = this.maskPhones(processed);
+    processed = this.maskCards(processed);
     processed = this.maskIbans(processed);
     processed = this.maskBics(processed);
     processed = this.maskNirs(processed);
     processed = this.maskSpis(processed);
+    processed = this.maskSsns(processed);
+    processed = this.maskIps(processed);
+    processed = this.maskPhones(processed);
     return processed;
   }
 
@@ -289,8 +313,14 @@ export class InFlightRedactionSession {
     return input.replace(EMAIL_REGEX, (match) => this.getOrCreateToken("EMAIL", match));
   }
 
-  private maskPhones(input: string): string {
-    return input.replace(PHONE_FR_REGEX, (match) => this.getOrCreateToken("PHONE", match));
+  private maskCards(input: string): string {
+    const strict = this.options.strictValidation !== false;
+    return input.replace(CARD_REGEX, (match) => {
+      if (strict && !validateLuhnChecksum(match)) {
+        return match;
+      }
+      return this.getOrCreateToken("CARD", match);
+    });
   }
 
   private maskIbans(input: string): string {
@@ -339,6 +369,18 @@ export class InFlightRedactionSession {
       }
       return this.getOrCreateToken("NIR", match);
     });
+  }
+
+  private maskSsns(input: string): string {
+    return input.replace(SSN_US_REGEX, (match) => this.getOrCreateToken("SSN", match));
+  }
+
+  private maskIps(input: string): string {
+    return input.replace(IP_REGEX, (match) => this.getOrCreateToken("IP", match));
+  }
+
+  private maskPhones(input: string): string {
+    return input.replace(PHONE_INTL_REGEX, (match) => this.getOrCreateToken("PHONE", match));
   }
 }
 

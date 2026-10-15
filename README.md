@@ -7,6 +7,9 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![Zod Native](https://img.shields.io/badge/Schema-Zod%20Native-orange)](https://zod.dev/)
 [![Zero Infra](https://img.shields.io/badge/Infrastructure-Zero%20Servers-emerald)](#why-avantgate)
+[![SaaS Gateway](https://img.shields.io/badge/SaaS%20Gateway-gatewall.eu-8A2BE2?logo=cloud)](https://gatewall.eu/)
+
+> 🌐 **GateWall Cloud SaaS**: Looking for a managed, sovereign EU gateway? Discover **GateWall** live at **[https://gatewall.eu/](https://gatewall.eu/)** (Universal drop-in `/v1/chat/completions` proxy, bidirectional in-flight DLP, and multi-provider auto-fallback).
 
 ---
 
@@ -43,7 +46,7 @@ flowchart LR
     GateWall -- "SSE Real-Time Stream" --> Browser["💻 Web Dashboard<br/>(localhost:3000)"]
 ```
 
-> 💡 **Standalone Repository:** GateWall Cockpit is maintained independently at `../gatewall`. If your application runs headless, you do **not** need to deploy or run GateWall — all guardrails, PII redactions, and token budgets execute directly within your Node.js process.
+> 💡 **Standalone Repository & Live SaaS:** GateWall is available as a managed Cloud platform at **[https://gatewall.eu/](https://gatewall.eu/)** or as a standalone self-hosted cockpit at `../gatewall`. If your application runs headless, you do **not** need to deploy or run GateWall — all guardrails, PII redactions, and token budgets execute directly within your Node.js process.
 
 ---
 
@@ -74,7 +77,7 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 
 | Pillar | Core Capabilities & Architecture |
 |---|---|
-| 🛡️ **AI-WAF & Privacy** | • **In-Flight Bidirectional DLP (v2.5)**: Reversible masking (`InFlightRedactionSession`), signed tokens (`⟪AG:TYPE:1:SALT⟫`), SSE sliding window & zero-retention memory purge.<br/>• **Prompt Guardrails**: Blocks prompt injections, jailbreaks & exfiltration *pre-flight*.<br/>• **Zero-Egress DLP**: In-process redaction of emails, phone numbers, IBANs & EU tax IDs.<br/>• **Bidirectional Secret Guard**: Active DLP masking of API keys & database credentials in LLM outputs and error traces.<br/>• **Self-Repairing Outputs**: Native Zod validation with automatic JSON heuristic repair. |
+| 🛡️ **AI-WAF & Privacy** | • **In-Flight Bidirectional DLP (v2.6)**: Reversible masking (`InFlightRedactionSession`), signed tokens (`⟪AG:TYPE:1:SALT⟫`), SSE sliding window & zero-retention memory purge.<br/>• **PCI-DSS Credit Cards & Luhn**: Arithmetical validation for Visa, Mastercard, Amex with zero false positives.<br/>• **Network IPv4 & CIDR Protection**: Masks private/public IPs with anti-versioning lookarounds (`v2.4.1.0` preserved).<br/>• **International Phones (E.164) & US SSN**: Global phone formatting and SSA-compliant Social Security protection.<br/>• **Prompt Guardrails**: Blocks prompt injections, jailbreaks & exfiltration *pre-flight*.<br/>• **Bidirectional Secret Guard**: Active DLP masking of API keys & database credentials in LLM outputs and error traces.<br/>• **Self-Repairing Outputs**: Native Zod validation with automatic JSON heuristic repair. |
 | 🛑 **Agent Isolation & Anti-IDOR** | • **Dual-Channel DTOs**: Streams full records to UI while injecting sanitized summaries into LLM.<br/>• **Anti-IDOR Boundary**: Compile-time tenant scoping (`createTenantTool`) & runtime ownership checks.<br/>• **Server Idempotency Guard**: Zero-infra in-process guard (`withServerIdempotency`) with memory or storage adapters.<br/>• **Infinite Loop Shield**: Detects and breaks recursive agent tool execution loops. |
 | 💰 **FinOps & Resilience** | • **Denial-of-Wallet**: Enforces hard token & USD budgets *before* external inference spend.<br/>• **Multi-Model Failover**: Instant client-side routing to fallback models or local Ollama on 429/500.<br/>• **FinOps Batch Deduplication**: Prevents double-counting of tokens & costs during network retries on GateWall.<br/>• **Live Cost Ledger**: Token burn calculation & pricing adapters with zero external DB. |
 | ⚡ **Sagas, Replay & Telemetry** | • **Deterministic Sagas (`avantgate/workflow`)**: In-process FSM with automatic reverse compensation ($k-1 \to 0$).<br/>• **In-Context Replay (`avantgate/client`)**: React hook (`useTask`) with causal parent linkage (`parentRunId`) & `Idempotency-Key`.<br/>• **Human-in-the-Loop (HITL)**: Non-blocking suspension, approval queues & fail-closed 24h SLA timeout (TTL).<br/>• **Lightweight Telemetry**: < 1.7 KB client SDK & async audit bridge to GateWall. |
@@ -94,7 +97,7 @@ Contact our team at [contact@gatewall.fr](mailto:contact@gatewall.fr) for privat
 | 📊 **Observability & Cockpit** | [GateWall Cockpit Console](docs/observability/gatewall-cockpit.md) • [Telemetry & Browser SDK](docs/observability/telemetry-and-browser-sdk.md) • [GateWall vs. Temporal](docs/observability/temporal-and-gatewall.md) |
 | 💶 **Accounting** | [Financial Normalizer](docs/finance/normalizer.md) |
 | 🎨 **Presentation Plane** | [Headless UI Canvas & React Bindings](docs/ui/headless-canvas.md) |
-| 🚀 **Release Notes** | [v2.5.0 Release Notes](docs/release/release-2.5.0.md) • [v2.4.0 Release Notes](docs/release/release-2.4.0.md) • [v2.3.0 Release Notes](docs/release/release-2.3.0.md) • [v2.2.0 Release Notes](docs/release/release-2.2.0.md) • [v2.1.0 Release Notes](docs/release/release-2.1.0.md) • [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
+| 🚀 **Release Notes** | [v2.6.0 Release Notes](docs/release/release-2.6.0.md) • [v2.5.0 Release Notes](docs/release/release-2.5.0.md) • [v2.4.0 Release Notes](docs/release/release-2.4.0.md) • [v2.3.0 Release Notes](docs/release/release-2.3.0.md) • [v2.2.0 Release Notes](docs/release/release-2.2.0.md) • [v2.1.0 Release Notes](docs/release/release-2.1.0.md) • [v2.0.0 Release Notes](docs/release/release-2.0.0.md) • [v1.9.0 Release Notes](docs/release/release-1.9.0.md) |
 
 ---
 
